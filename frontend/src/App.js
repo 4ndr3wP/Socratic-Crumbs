@@ -4,9 +4,10 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import './App.css'; 
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { dracula } from 'react-syntax-highlighter/dist/esm/styles/prism'; 
-
+import ModelSelector from './components/ModelSelector'; 
+import MessageBubble from './components/MessageBubble'; 
+import InputArea from './components/InputArea'; 
+import AssistantBubble from './components/AssistantBubble'; // Import AssistantBubble
 
 function App() {
   const [messages, setMessages] = useState([]);
@@ -17,52 +18,6 @@ function App() {
   const [isUserScrolled, setIsUserScrolled] = useState(false);
   const chatContainerRef = useRef(null);
   const [abortController, setAbortController] = useState(null); 
-  const textareaRef = useRef(null); // Ref for the textarea
-
-  const handleInputChange = (e) => {
-    const textarea = e.target;
-    setUserInput(textarea.value);
-
-    // Reset height to auto to ensure it shrinks correctly
-    textarea.style.height = 'auto';
-
-    const computedStyle = getComputedStyle(textarea);
-    const lineHeight = parseFloat(computedStyle.lineHeight);
-    const paddingTop = parseFloat(computedStyle.paddingTop);
-    const paddingBottom = parseFloat(computedStyle.paddingBottom);
-    const borderTop = parseFloat(computedStyle.borderTopWidth);
-    const borderBottom = parseFloat(computedStyle.borderBottomWidth);
-
-    const MAX_LINES = 5;
-    const maxHeight = (lineHeight * MAX_LINES) + paddingTop + paddingBottom + borderTop + borderBottom;
-    const singleLineHeight = lineHeight + paddingTop + paddingBottom + borderTop + borderBottom;
-
-    // Calculate the scroll height (content height)
-    const scrollHeight = textarea.scrollHeight;
-
-    if (scrollHeight <= singleLineHeight) {
-        // If content is less than or fits one line, set to auto (or explicit single line height)
-        textarea.style.height = 'auto'; // Let CSS handle the min-height for single line
-        textarea.style.overflowY = 'hidden';
-    } else if (scrollHeight <= maxHeight) {
-        // If content is more than one line but less than max, adjust height
-        textarea.style.height = `${scrollHeight}px`;
-        textarea.style.overflowY = 'hidden';
-    } else {
-        // If content exceeds max height, set to max height and show scrollbar
-        textarea.style.height = `${maxHeight}px`;
-        textarea.style.overflowY = 'auto';
-    }
-  };
-
-  useEffect(() => {
-    // When userInput becomes empty (e.g., after sending a message),
-    // reset the textarea height to its initial single-line state.
-    if (userInput === '' && textareaRef.current) {
-      textareaRef.current.style.height = 'auto'; // Rely on CSS min-height
-      textareaRef.current.style.overflowY = 'hidden';
-    }
-  }, [userInput]);
 
   useEffect(() => {
     fetch('/api/models')
@@ -260,164 +215,42 @@ function App() {
     <div className="App">
       <div className="header">
         <h2>Socratic Crumbs</h2>
-        <div className="model-selector">
-          <label htmlFor="model">Model:</label>
-          <select 
-            id="model" 
-            value={selectedModel} 
-            onChange={(e) => setSelectedModel(e.target.value)}
-            disabled={isOverallStreaming} 
-          >
-            {models.map(m => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
-        </div>
+        <ModelSelector 
+          models={models}
+          selectedModel={selectedModel}
+          setSelectedModel={setSelectedModel}
+          isOverallStreaming={isOverallStreaming}
+        />
       </div>
 
       <div className="chat-container" ref={chatContainerRef}>
-      {messages.map((msg) => ( 
-        <div key={msg.id} className={`message ${msg.role}`}>
-          <div className="bubble">
-            {msg.role === 'assistant' ? (
-              (msg.isStreamingThisMessage && !msg.content) ? 
-                <div className="typing-indicator">
-                  <span className="dot"></span>
-                  <span className="dot"></span>
-                  <span className="dot"></span>
-                </div>
-              : 
-                <AssistantBubble 
-                  message={msg} 
-                  onToggleThinking={handleToggleThinking} 
-                />
-            ) : (
-              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                {msg.content}
-              </ReactMarkdown>
-            )}
-          </div>
-        </div>
-      ))}
-      {isUserScrolled && (
-        <button 
-          className="scroll-to-bottom" 
-          onClick={handleScrollToBottom}
-        >
-          ↓
-        </button>
-      )}
-    </div>
-
-      <form className="input-area" onSubmit={handleSubmit}>
-        <textarea
-          ref={textareaRef} // Add ref to textarea
-          value={userInput}
-          onChange={handleInputChange}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault(); // Prevent newline in textarea
-              if (userInput.trim() && e.target.form) {
-                e.target.form.requestSubmit(); // Trigger form submission
-              }
-            }
-          }}
-          placeholder="Type your message..."
-          disabled={isOverallStreaming}
-          rows="1" // Start with one row height
-          style={{ overflowY: 'hidden' }} // Initially hide scrollbar, JS manages it
-        />
-        {!isOverallStreaming ? (
-          <button type="submit" disabled={!userInput.trim()}>Send</button>
-        ) : (
-          <button type="button" onClick={handleStopStreaming}>Stop</button>
-        )}
-      </form>
-    </div>
-  );
-}
-
-function AssistantBubble({ message, onToggleThinking }) {
-  const { 
-    id, 
-    content, 
-    thinking, 
-    response, 
-    isStreamingComplete, 
-    isThinkingVisible, 
-    showToggle 
-  } = message;
-
-  const handleCopy = (code) => {
-    navigator.clipboard.writeText(code);
-  };
-
-  if (!isStreamingComplete && content) { 
-    return <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{content}</ReactMarkdown>;
-  }
-  
-  if (isStreamingComplete) {
-    return (
-      <div>
-        {showToggle && (
-          <button onClick={() => onToggleThinking(id)} className="think-toggle-button" aria-label="Toggle Thoughts">
-            🧠 
+        {messages.map((msg) => (
+          <MessageBubble 
+            key={msg.id} 
+            msg={msg} 
+            onToggleThinking={handleToggleThinking} 
+            AssistantBubbleComponent={AssistantBubble} 
+          />
+        ))}
+        {isUserScrolled && (
+          <button 
+            className="scroll-to-bottom" 
+            onClick={handleScrollToBottom}
+          >
+            ↓
           </button>
         )}
-        {isThinkingVisible && thinking && (
-          <div className="thinking-bubble"> 
-            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-              {thinking}
-            </ReactMarkdown>
-          </div>
-        )}
-        <ReactMarkdown
-          remarkPlugins={[remarkMath]}
-          rehypePlugins={[rehypeKatex]}
-          components={{
-            code({ node, inline, className, children, ...props }) {
-              const match = /language-(\w+)/.exec(className || '');
-              const lang = match ? match[1].toLowerCase() : null;
-
-              if (!inline && lang && lang !== 'latex') {
-                return (
-                  <div style={{ position: 'relative', marginTop: '1em', marginBottom: '1em' }}>
-                    <SyntaxHighlighter
-                      style={dracula}
-                      language={lang}
-                      PreTag="div" 
-                      customStyle={{
-                        backgroundColor: '#000', borderRadius: '8px', paddingTop: '16px',
-                        paddingBottom: '16px', paddingLeft: '16px', paddingRight: '60px',
-                        fontSize: '14px', lineHeight: '1.5', overflowX: 'auto',
-                      }}
-                      {...props}
-                    >
-                      {String(children).replace(/\n$/, '')}
-                    </SyntaxHighlighter>
-                    <button
-                      onClick={() => handleCopy(String(children).replace(/\n$/, ''))}
-                      style={{
-                        position: 'absolute', top: '8px', right: '8px', background: '#007AFF',
-                        border: 'none', borderRadius: '4px', color: '#fff', padding: '4px 8px',
-                        fontSize: '12px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
-                      }}
-                    >
-                      Copy
-                    </button>
-                  </div>
-                );
-              }
-              return <code className={className} {...props}>{children}</code>;
-            }
-          }}
-        >
-          {response || ""} 
-        </ReactMarkdown>
       </div>
-    );
-  }
-  return null; 
+
+      <InputArea 
+        userInput={userInput}
+        setUserInput={setUserInput}
+        isOverallStreaming={isOverallStreaming}
+        handleSubmit={handleSubmit}
+        handleStopStreaming={handleStopStreaming}
+      />
+    </div>
+  );
 }
 
 export default App;

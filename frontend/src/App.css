@@ -33,9 +33,10 @@ body {
 /* Chat messages container */
 .chat-container {
   flex: 1;
-  padding: 10px;
+  padding: 10px; /* Keeps original top/left/right padding */
   overflow-y: auto;
   background-color: #efefef;
+  padding-bottom: 70px; /* Increased from 50px to provide more clearance */
 }
 /* Message bubbles */
 .message {
@@ -212,37 +213,42 @@ body {
   padding: 10px;
   background: #fff;
   border-top: 1px solid #ccc;
-  align-items: center; 
+  align-items: center;
+  position: fixed; /* Changed from sticky */
+  bottom: 0;
+  left: 0;
+  right: 0; /* Make it span full width */
+  z-index: 100;
+  box-sizing: border-box; /* Ensures padding is within the 100% width */
 }
 
 .input-area textarea {
   flex: 1;
-  padding: 6px 8px; /* Increased top/bottom padding from 4px to 6px */
+  padding: 6px 8px; 
   font-size: 14px;   
-  line-height: 1.1;  
+  line-height: 1.5;  /* Increased from 1.1 for better readability */
   border: 1px solid #ccc;
   border-radius: 18px; 
   resize: none;
   box-sizing: border-box;
 
-  /* Recalculated height for one line: (1.1em * 14px) + (6px padding-top + 6px padding-bottom) + (1px border-top + 1px border-bottom) */
-  /* 1.1em (based on 14px) = 15.4px. So, 15.4px + 12px (padding) + 2px (border) = 1.1em + 14px */
-  height: calc(1.1em + 14px); 
+  /* Recalculated height for one line: (1.5em) + 14px (padding + border) */
+  height: calc(1.5em + 14px); 
   
-  /* Max-height for 5 lines: (1.1em * 5) + 14px */
-  max-height: calc((1.1em * 5) + 14px);
+  /* Max-height for 5 lines: (1.5em * 5) + 14px */
+  max-height: calc((1.5em * 5) + 14px);
   
   overflow-y: hidden; 
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
 }
 
 .input-area button {
-  padding: 6px 12px; /* Adjusted top/bottom padding from 4px to 6px */
+  padding: 6px 12px; 
   font-size: 14px;   
   margin-left: 8px; 
   border-radius: 18px; 
-  line-height: 1.1;  
-  height: calc(1.1em + 14px); /* Match textarea height */
+  line-height: 1.5;  /* Adjusted to match textarea's new line-height */
+  height: calc(1.5em + 14px); /* Match textarea new single-line height */
   box-sizing: border-box; 
 }
 
