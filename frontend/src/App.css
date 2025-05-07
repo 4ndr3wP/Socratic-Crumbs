@@ -101,6 +101,57 @@ body {
   margin-bottom: 0; /* Paragraphs inside list items should not add extra vertical space */
 }
 
+/* AGGRESSIVE LIST SPACING FIX */
+/* Target the direct lists and their items with high specificity */
+.bubble ul,
+.bubble ol,
+.bubble > div > ul,
+.bubble > div > ol {
+  margin-top: 0.2em !important;    /* Small gap before list */
+  margin-bottom: 0.2em !important; /* Small gap after list */
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  padding-left: 25px !important; /* Indentation for list */
+  white-space: normal !important; /* Override pre-wrap for lists */
+}
+
+/* Target list items directly */
+.bubble li,
+.bubble > div > ul > li,
+.bubble > div > ol > li,
+.bubble > ul > li,
+.bubble > ol > li {
+  margin-top: 0 !important;
+  margin-bottom: 0.1em !important; /* Minimal space between items */
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  line-height: 1.4 !important; /* Adjust line-height for readability */
+  white-space: normal !important; /* Override pre-wrap for list items */
+}
+
+/* CRITICAL: Remove margins from paragraphs directly inside list items */
+.bubble li > p,
+.bubble > div > ul > li > p,
+.bubble > div > ol > li > p,
+.bubble > ul > li > p,
+.bubble > ol > li > p {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  display: inline !important; /* Attempt to make paragraphs flow like text within li */
+}
+
+/* If paragraphs are the only child, ensure no margin and normal white-space */
+.bubble li > p:only-child,
+.bubble > div > ul > li > p:only-child,
+.bubble > div > ol > li > p:only-child,
+.bubble > ul > li > p:only-child,
+.bubble > ol > li > p:only-child {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  display: inline !important; /* Reinforce inline display */
+}
 
 /* Code block styling inside bubbles (NOT SyntaxHighlighter blocks) */
 .bubble pre { 
