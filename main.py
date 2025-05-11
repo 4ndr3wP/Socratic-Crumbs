@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-import ollama
+from ollama import AsyncClient, ResponseError
 
 app = FastAPI()
 
@@ -17,16 +17,19 @@ class ChatRequest(BaseModel):
     messages: list[Message]
 
 @app.get("/api/models")
-def list_models():
+async def list_models():
     try:
-        model_list = ollama.list()
+        client = AsyncClient()
+        model_list = await client.list()
         models = [m.get("name") or m.get("model") for m in model_list.get("models", [])]
         return {"models": models}
+    except ResponseError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.error)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/chat")
-def chat(request: ChatRequest):
+async def chat(request: ChatRequest):
     try:
         messages_payload = []
         for m in request.messages:
@@ -39,15 +42,18 @@ def chat(request: ChatRequest):
         # or handle as per Ollama's multi-message image support if applicable.
         # For now, assuming images are part of the latest user prompt.
         
-        stream = ollama.chat(model=request.model, messages=messages_payload, stream=True)
+        client = AsyncClient()
+        stream = await client.chat(model=request.model, messages=messages_payload, stream=True)
 
-        def generate():
-            for chunk in stream:
+        async def generate():
+            async for chunk in stream:
                 content = chunk.get("message", {}).get("content", "")
                 if content:
                     yield content
 
         return StreamingResponse(generate(), media_type="text/plain")
+    except ResponseError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.error)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
