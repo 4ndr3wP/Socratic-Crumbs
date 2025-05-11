@@ -171,7 +171,7 @@ function InputArea({
             }
           }
         }}
-        placeholder="Type your message or add an image..." // Updated placeholder
+        placeholder="Type your message..."
         disabled={isOverallStreaming}
         rows="1" // Start with one row height
         style={{ overflowY: 'hidden' }} // Initially hide scrollbar, JS manages it
