@@ -21,9 +21,18 @@ function MessageBubble({ msg, onToggleThinking, AssistantBubbleComponent }) {
               onToggleThinking={onToggleThinking} 
             />
         ) : (
-          <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-            {msg.content}
-          </ReactMarkdown>
+          <>
+            {msg.imagePreviewUrl && (
+              <img 
+                src={msg.imagePreviewUrl} 
+                alt="User upload" 
+                style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '8px', marginBottom: '8px' }} 
+              />
+            )}
+            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+              {msg.content}
+            </ReactMarkdown>
+          </>
         )}
       </div>
     </div>

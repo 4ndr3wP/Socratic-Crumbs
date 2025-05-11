@@ -18,6 +18,8 @@ import { useChatScroll } from './hooks/useChatScroll'; // Manages scroll behavio
 function App() {
   // State for the user's current input in the text area
   const [userInput, setUserInput] = useState('');
+  const [selectedImage, setSelectedImage] = useState(null); // New state for selected image file
+  const [imagePreview, setImagePreview] = useState(null); // New state for image preview URL
 
   // --- Custom Hook Integrations ---
   // Manage AI model data (list of models, selected model, and setter)
@@ -27,6 +29,7 @@ function App() {
   // Pass the currently selected model to the chat logic hook
   const {
     messages,               // Array of chat messages
+    setMessages,            // Allow App.js to update messages for image display
     isOverallStreaming,     // Boolean indicating if a response is currently streaming
     handleToggleThinking,   // Function to toggle visibility of assistant's thought process
     handleStopStreaming,    // Function to stop an ongoing stream
@@ -42,8 +45,8 @@ function App() {
   // Prevents default form submission and calls the chat submission handler from useChatLogic
   const handleSubmitWrapper = async (e) => {
     e.preventDefault(); // Prevent page reload on form submission
-    // Pass current userInput, its setter, the messages array, and the selected model to the hook's submit handler
-    await handleChatSubmit(userInput, setUserInput, messages, selectedModel);
+    // Pass current userInput, its setter, the messages array, selected model, selected image, and its setter
+    await handleChatSubmit(userInput, setUserInput, messages, selectedModel, selectedImage, setSelectedImage, setImagePreview, setMessages);
   };
 
   // --- JSX Rendering ---
@@ -89,6 +92,10 @@ function App() {
         isOverallStreaming={isOverallStreaming} // Pass streaming status to disable input during streaming
         handleSubmit={handleSubmitWrapper} // Pass the submit handler wrapper
         handleStopStreaming={handleStopStreaming} // Pass the stop streaming handler
+        selectedImage={selectedImage} // Pass selected image
+        setSelectedImage={setSelectedImage} // Pass setter for selected image
+        imagePreview={imagePreview} // Pass image preview URL
+        setImagePreview={setImagePreview} // Pass setter for image preview URL
       />
     </div>
   );

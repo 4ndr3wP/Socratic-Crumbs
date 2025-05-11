@@ -23,10 +23,6 @@ export const useChatLogic = (initialMessages = [], selectedModelProp) => {
   const [messages, setMessages] = useState(initialMessages);
   const [isOverallStreaming, setIsOverallStreaming] = useState(false);
   const [abortController, setAbortController] = useState(null);
-  // selectedModel is managed by App.js, passed as a prop to the hook
-  // const [selectedModel, setSelectedModel] = useState(selectedModelProp); 
-  // useEffect(() => { setSelectedModel(selectedModelProp); }, [selectedModelProp]);
-
 
   const handleToggleThinking = useCallback((messageId) => {
     setMessages(prevMessages =>
@@ -43,24 +39,67 @@ export const useChatLogic = (initialMessages = [], selectedModelProp) => {
     }
   }, [abortController]);
 
-  const handleSubmit = useCallback(async (userInput, setUserInput, currentMessages, selectedModel) => {
-    if (!userInput.trim() || isOverallStreaming) return;
+  const handleSubmit = useCallback(async (
+    userInput, 
+    setUserInput, 
+    currentMessages, 
+    selectedModel, 
+    selectedImage, 
+    setSelectedImage, 
+    setImagePreview, 
+    setAppMessages
+  ) => {
+    if ((!userInput.trim() && !selectedImage) || isOverallStreaming) return;
 
-    const newUserMessage = { role: 'user', content: userInput, id: Date.now() + '-user' };
-    setMessages(prev => [...prev, newUserMessage]);
-    setUserInput(''); // Clear input in App.js via callback
+    let imageBase64 = null;
+    let imagePreviewUrl = null; 
 
-    const conversationPayload = currentMessages // Use currentMessages from App.js state at time of call
+    if (selectedImage) {
+      imagePreviewUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(selectedImage);
+      });
+      imageBase64 = imagePreviewUrl.split(',')[1];
+    }
+
+    const newUserMessage = { 
+      role: 'user', 
+      content: userInput, 
+      id: Date.now() + '-user',
+      imagePreviewUrl: selectedImage ? imagePreviewUrl : null
+    };
+    
+    setAppMessages(prev => [...prev, newUserMessage]); 
+    
+    setUserInput(''); 
+    if (selectedImage) {
+      setSelectedImage(null);
+      setImagePreview(null);
+    }
+
+    const latestUserMessageForPayload = { 
+      role: 'user', 
+      content: userInput,
+      images: imageBase64 ? [imageBase64] : null 
+    };
+
+    const conversationPayload = currentMessages
       .filter(msg => msg.role === 'user' || (msg.role === 'assistant' && msg.isStreamingComplete))
-      .map(m => ({ role: m.role, content: m.role === 'assistant' ? m.response : m.content }))
-      .concat([{ role: 'user', content: userInput }]);
+      .map(m => ({ 
+        role: m.role, 
+        content: m.role === 'assistant' ? m.response : m.content,
+        images: (m.role === 'user' && m.id === newUserMessage.id -1 && m.imagePreviewUrl) ? m.images : null
+      }))
+      .concat([latestUserMessageForPayload]);
 
     const controller = new AbortController();
     setAbortController(controller);
 
     const assistantMsgId = Date.now() + '-assistant';
 
-    setMessages(prev => [...prev, {
+    setAppMessages(prev => [...prev, {
       role: 'assistant',
       id: assistantMsgId,
       content: '',
@@ -71,13 +110,14 @@ export const useChatLogic = (initialMessages = [], selectedModelProp) => {
       isThinkingVisible: false,
       showToggle: false
     }]);
+
     setIsOverallStreaming(true);
 
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: selectedModel, messages: conversationPayload }),
+        body: JSON.stringify({ model: selectedModel, messages: conversationPayload }), 
         signal: controller.signal,
       });
       if (!response.body) throw new Error('No response body');
@@ -87,13 +127,13 @@ export const useChatLogic = (initialMessages = [], selectedModelProp) => {
 
       while (!done) {
         const { value, done: doneReading } = await reader.read();
-        if (controller.signal.aborted) { // Check for abort signal
-          done = true; // Exit loop if aborted
+        if (controller.signal.aborted) {
+          done = true; 
           throw new DOMException('Aborted by user', 'AbortError');
         }
         if (value) {
           const decodedChunk = decoder.decode(value, { stream: true });
-          setMessages(prevMessages =>
+          setAppMessages(prevMessages => 
             prevMessages.map(msg =>
               msg.id === assistantMsgId
                 ? { ...msg, content: msg.content + decodedChunk }
@@ -106,7 +146,7 @@ export const useChatLogic = (initialMessages = [], selectedModelProp) => {
     } catch (err) {
       if (err.name === 'AbortError') {
         console.log('Streaming aborted.');
-        setMessages(prev => prev.map(msg => {
+        setAppMessages(prev => prev.map(msg => {
           if (msg.id === assistantMsgId) {
             const finalContent = (msg.content || "") + "\n*Streaming stopped.*";
             const { thinkingText, responseText, showToggleButton } = parseThinkResponse(finalContent);
@@ -124,7 +164,7 @@ export const useChatLogic = (initialMessages = [], selectedModelProp) => {
         }));
       } else {
         console.error('Error during fetch:', err);
-        setMessages(prev => prev.map(msg => {
+        setAppMessages(prev => prev.map(msg => {
           if (msg.id === assistantMsgId) {
             const errorContent = '*Error: Failed to get response*';
             return {
@@ -143,9 +183,9 @@ export const useChatLogic = (initialMessages = [], selectedModelProp) => {
       setIsOverallStreaming(false);
       setAbortController(null);
 
-      setMessages(prevMessages =>
+      setAppMessages(prevMessages =>
         prevMessages.map(msg => {
-          if (msg.id === assistantMsgId && !msg.isStreamingComplete) { // Ensure this runs only if not already completed by abort
+          if (msg.id === assistantMsgId && !msg.isStreamingComplete) { 
             const { thinkingText, responseText, showToggleButton } = parseThinkResponse(msg.content);
             return {
               ...msg,
@@ -160,11 +200,11 @@ export const useChatLogic = (initialMessages = [], selectedModelProp) => {
         })
       );
     }
-  }, [isOverallStreaming]); // Dependencies: selectedModel will be passed directly
+  }, [isOverallStreaming]);
 
   return {
     messages,
-    setMessages, // Expose setMessages for initialization if needed
+    setMessages,
     isOverallStreaming,
     handleToggleThinking,
     handleStopStreaming,
