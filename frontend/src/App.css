@@ -261,14 +261,21 @@ body {
   margin-bottom: 6px; 
   cursor: pointer;
   display: inline-block; 
-  line-height: 1; 
-  vertical-align: middle; 
+  line-height: 1; /* Ensure tight fit */
+}
+
+.think-toggle-button img {
+  width: 24px; /* Or your preferred size */
+  height: 24px; /* Or your preferred size */
+  vertical-align: middle; /* Helps align if there's any surrounding text or if button has padding */
 }
 
 .think-toggle-button:hover {
   background-color: #f0f0f0; 
 }
 
+/* Comment out the old .thinking-bubble styles as it's replaced by the tooltip */
+/*
 .thinking-bubble {
   background-color: #ffffff; 
   border: 1px solid #e0e0e0;   
@@ -298,6 +305,118 @@ body {
   color: #333333; 
   margin-top: 0.6em;
   margin-bottom: 0.2em;
+}
+*/
+
+/* Styles for Tooltip/Popover (Option 1) */
+.assistant-bubble-content {
+  position: relative; /* Keep if any child absolutely positions relative to it */
+}
+
+/* New wrapper for hover logic, and for centering the icon group */
+/* Renamed from .thinking-hover-area to match JS */
+.think-icon-area {
+  position: relative; 
+  display: block; 
+  text-align: center; 
+  margin-bottom: 8px; 
+}
+
+.think-toggle-container {
+  position: relative; /* THIS IS THE CRUCIAL ANCHOR for the tooltip's top: 100% */
+  display: inline-block; /* Allows text-align: center on parent to work, and fits content */
+}
+
+.think-toggle-button {
+  background: none;
+  border: none;
+  font-size: 24px; /* Slightly larger icon */
+  padding: 0;
+  cursor: pointer;
+  display: inline-block; /* Allows text-align:center on parent to work */
+  line-height: 1; /* Ensure tight fit */
+}
+
+.think-toggle-button img {
+  width: 28px; /* Increased from 24px */
+  height: 28px; /* Increased from 24px */
+  vertical-align: middle; /* Helps align if there's any surrounding text or if button has padding */
+}
+
+.think-toggle-button:hover {
+  opacity: 0.8; /* Subtle hover effect for the icon */
+}
+
+.thinking-tooltip {
+  position: absolute;
+  top: 100%; /* Position below the .think-toggle-container */
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 2px; /* Reduced from 4px to minimize gap */
+  
+  background-color: #ffffff; /* Brighter background for tooltip */
+  border: 1px solid #cccccc;
+  padding: 12px 15px;
+  border-radius: 8px;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.15); /* Softer, more modern shadow */
+  z-index: 1000;
+  
+  width: 320px; /* A specific width for the tooltip */
+  max-height: 250px; /* Max height before scrolling */
+  overflow-y: auto; /* Add scroll for longer content */
+  
+  text-align: left; /* Text inside tooltip should be left-aligned */
+  font-size: 0.9em;
+  color: #333333; /* Darker text for readability */
+}
+
+/* Markdown content styling within the tooltip */
+.thinking-tooltip p {
+  margin-top: 0.3em;
+  margin-bottom: 0.5em; 
+}
+.thinking-tooltip p:first-child {
+  margin-top: 0;
+}
+.thinking-tooltip p:last-child {
+  margin-bottom: 0;
+}
+.thinking-tooltip h1, 
+.thinking-tooltip h2, 
+.thinking-tooltip h3,
+.thinking-tooltip h4,
+.thinking-tooltip h5,
+.thinking-tooltip h6 {
+  font-size: 1.1em; 
+  color: #111111; 
+  margin-top: 0.8em;
+  margin-bottom: 0.3em;
+}
+.thinking-tooltip ul, 
+.thinking-tooltip ol {
+  margin-top: 0.3em;
+  margin-bottom: 0.3em;
+  padding-left: 20px;
+}
+.thinking-tooltip li {
+  margin-bottom: 0.2em;
+}
+.thinking-tooltip pre {
+  background-color: #f0f0f0;
+  padding: 8px;
+  border-radius: 4px;
+  margin: 0.5em 0;
+  font-size: 0.95em;
+}
+.thinking-tooltip code {
+  background-color: #f0f0f0;
+  padding: 1px 3px;
+  border-radius: 3px;
+  font-family: monospace;
+}
+.thinking-tooltip pre code {
+  padding: 0;
+  background-color: transparent;
 }
 
 

@@ -8,14 +8,15 @@ import { dracula } from 'react-syntax-highlighter/dist/esm/styles/prism';
 // AssistantBubble component
 function AssistantBubble({ message, onToggleThinking }) {
   const { 
-    id, 
     content, 
     thinking, 
     response, 
     isStreamingComplete, 
-    isThinkingVisible, 
+    // isThinkingVisible, // This prop might not be directly used for hover, local state controls tooltip
     showToggle 
   } = message;
+
+  const [isTooltipVisible, setIsTooltipVisible] = React.useState(false);
 
   const handleCopy = (code) => {
     navigator.clipboard.writeText(code);
@@ -27,17 +28,26 @@ function AssistantBubble({ message, onToggleThinking }) {
   
   if (isStreamingComplete) {
     return (
-      <div>
+      <div className="assistant-bubble-content"> {/* Wrapper for positioning context */}
         {showToggle && (
-          <button onClick={() => onToggleThinking(id)} className="think-toggle-button" aria-label="Toggle Thoughts">
-            🧠 
-          </button>
-        )}
-        {isThinkingVisible && thinking && (
-          <div className="thinking-bubble"> 
-            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-              {thinking}
-            </ReactMarkdown>
+          <div
+            className="think-icon-area" // This div handles hover and centers its inline-block child
+            onMouseEnter={() => setIsTooltipVisible(true)}
+            onMouseLeave={() => setIsTooltipVisible(false)}
+          >
+            <div className="think-toggle-container"> {/* For icon button structure and tooltip anchor */}
+              <button className="think-toggle-button" aria-label="Show Thoughts">
+                <img src="/SocraticCrumbsIcon.png" alt="Thinking process" />
+              </button>
+            </div>
+            {/* Tooltip is a sibling to the icon's container, positioned relative to it */}
+            {isTooltipVisible && thinking && (
+              <div className="thinking-tooltip">
+                <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                  {thinking}
+                </ReactMarkdown>
+              </div>
+            )}
           </div>
         )}
         <ReactMarkdown
@@ -56,7 +66,6 @@ function AssistantBubble({ message, onToggleThinking }) {
                   return <code className={className} {...props}>{children}</code>;
                 } else {
                   // For block-level 'latex' or 'markdown', render as simple preformatted text.
-                  // This avoids applying the SyntaxHighlighter's theme (e.g., black box) to them.
                   return <pre><code className={className} {...props}>{String(children).replace(/\n$/, '')}</code></pre>;
                 }
               }
@@ -93,7 +102,6 @@ function AssistantBubble({ message, onToggleThinking }) {
               }
               
               // Fallback for block code without a specified language or any other unhandled case.
-              // Render as simple preformatted text.
               return <pre><code className={className} {...props}>{String(children).replace(/\n$/, '')}</code></pre>;
             }
           }}
