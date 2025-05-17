@@ -3,7 +3,6 @@ import React from 'react';
 function ModelSelector({ models, selectedModel, setSelectedModel, isOverallStreaming }) {
   return (
     <div className="model-selector">
-      <label htmlFor="model">Model:</label>
       <select
         id="model"
         value={selectedModel}
