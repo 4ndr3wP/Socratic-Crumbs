@@ -12,21 +12,24 @@ body {
 }
 /* Header bar with model selector */
 .header {
-  padding: 10px;
-  background-color: #333;
-  color: #fff;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.10); /* Subtle shadow for raised effect */
-  border-bottom: 1px solid #ccc; /* Match bottom bar border */
-  background: #fff; /* Match bottom bar background */
-  color: #222; /* Slightly darker text for contrast on white */
+  padding: 1rem;
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #dee2e6;
 }
-.header h2 {
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.header-left h2 {
   margin: 0;
-  font-size: 1.1rem;
 }
+
 .model-selector label {
   margin-right: 5px;
   font-size: 0.9rem;
@@ -449,4 +452,49 @@ body {
 
 .scroll-to-bottom:hover {
   opacity: 1;
+}
+
+.tts-button {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0.5rem;
+  margin-right: 1rem;
+  transition: transform 0.2s;
+  opacity: 0.7;
+}
+
+.tts-button:hover {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.tts-button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.tts-button.enabled {
+  background-color: rgba(0, 123, 255, 0.1);
+  border-radius: 50%;
+}
+
+.tts-button.playing {
+  background-color: rgba(0, 123, 255, 0.2);
+  border-radius: 50%;
+  animation: pulse-opacity 1.5s infinite ease-in-out;
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+@keyframes pulse-opacity {
+  0% { opacity: 1; }
+  50% { opacity: 0.7; }
+  100% { opacity: 1; }
 }

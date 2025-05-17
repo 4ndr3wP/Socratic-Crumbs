@@ -79,7 +79,7 @@ class AudioPlayer:
         # Add to queue
         self.queue.put(audio_data)
 
-    def wait_for_queue_empty(self, timeout=30):
+    def wait_for_queue_empty(self, timeout=3):
         start_time = time.time()
         while not self.queue.empty() or self.is_playing:
             if time.time() - start_time > timeout:
