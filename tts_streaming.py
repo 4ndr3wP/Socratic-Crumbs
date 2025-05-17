@@ -168,30 +168,30 @@ class StreamingTTS:
         finally:
             self.is_streaming = False
     
-    def generate_and_play(self, text, voice, speed=1.0, split_pattern=r'[.!?]\s+', 
-                         on_segment_callback=None):
-        """
-        Generate audio from text and play it in streaming mode
+    # def generate_and_play(self, text, voice, speed=1.0, split_pattern=r'[.!?]\s+', 
+    #                      on_segment_callback=None):
+    #     """
+    #     Generate audio from text and play it in streaming mode
         
-        Args:
-            text: The text to convert to speech
-            voice: The voice to use (name or tensor)
-            speed: Playback speed multiplier
-            split_pattern: Regex pattern to split text into segments
-            on_segment_callback: Optional callback function called for each segment
-        """
-        # Stop any existing streaming
-        if self.is_streaming:
-            self.stop()
+    #     Args:
+    #         text: The text to convert to speech
+    #         voice: The voice to use (name or tensor)
+    #         speed: Playback speed multiplier
+    #         split_pattern: Regex pattern to split text into segments
+    #         on_segment_callback: Optional callback function called for each segment
+    #     """
+    #     # Stop any existing streaming
+    #     if self.is_streaming:
+    #         self.stop()
         
-        # Start new streaming session
-        self.is_streaming = True
+    #     # Start new streaming session
+    #     self.is_streaming = True
         
-        # Generate audio in a separate thread to not block
-        self._thread = threading.Thread(target=self._stream_audio_from_text, 
-                                      args=(text, voice, speed, split_pattern, on_segment_callback))
-        self._thread.daemon = True
-        self._thread.start()
+    #     # Generate audio in a separate thread to not block
+    #     self._thread = threading.Thread(target=self._stream_audio_from_text, 
+    #                                   args=(text, voice, speed, split_pattern, on_segment_callback))
+    #     self._thread.daemon = True
+    #     self._thread.start()
         
     def _stream_audio_from_text(self, text, voice, speed, split_pattern, on_segment_callback):
         """Internal method to generate and stream audio from text"""
