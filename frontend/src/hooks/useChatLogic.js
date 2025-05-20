@@ -13,11 +13,11 @@ const parseThinkResponse = (rawContent) => {
 
   if (thinkStartIndex !== -1 && thinkEndIndex > thinkStartIndex) {
     thinkingText = responseText.substring(thinkStartIndex + thinkTagStart.length, thinkEndIndex).trim();
-    responseText = (responseText.substring(0, thinkStartIndex) + responseText.substring(thinkEndIndex + thinkTagEnd.length));
+    responseText = (responseText.substring(0, thinkStartIndex) + responseText.substring(thinkEndIndex + thinkTagEnd.length)).trim();
     showToggleButton = true;
   }
-  // Trim leading/trailing whitespace and newlines to prevent blank lines
-  responseText = responseText.replace(/^\s+/, "").replace(/\s+$/, "");
+  // Always trim leading whitespace/newlines
+  responseText = responseText.replace(/^[\s\n]+/, "");
   return { thinkingText, responseText, showToggleButton };
 };
 
@@ -49,28 +49,42 @@ export const useChatLogic = (initialMessages = [], selectedModelProp) => {
     selectedImage, 
     setSelectedImage, 
     setImagePreview, 
-    setAppMessages
+    setAppMessages,
+    imagePreview // <-- add this parameter
   ) => {
     if ((!userInput.trim() && !selectedImage) || isOverallStreaming) return;
 
-    let imageBase64 = null;
-    let imagePreviewUrl = null; 
-
+    let imagePreviewUrl = null;
+    let images = null;
+    let fileType = null;
     if (selectedImage) {
-      imagePreviewUrl = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(selectedImage);
-      });
-      imageBase64 = imagePreviewUrl.split(',')[1];
+      if (selectedImage.type === 'application/pdf') {
+        imagePreviewUrl = { isPdf: true, originalName: selectedImage.name, pdfText: imagePreview?.pdfText };
+        // Read PDF as base64 for backend
+        images = [await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result.split(',')[1]);
+          reader.onerror = reject;
+          reader.readAsDataURL(selectedImage);
+        })];
+        fileType = 'pdf';
+      } else {
+        imagePreviewUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve({ url: reader.result, isPdf: false });
+          reader.onerror = reject;
+          reader.readAsDataURL(selectedImage);
+        });
+        images = [imagePreviewUrl.url.split(',')[1]];
+        fileType = 'image';
+      }
     }
 
     const newUserMessage = { 
       role: 'user', 
-      content: userInput, 
+      content: userInput, // Always show user's prompt in chat
       id: Date.now() + '-user',
-      imagePreviewUrl: selectedImage ? imagePreviewUrl : null
+      imagePreviewUrl: imagePreviewUrl
     };
     
     setAppMessages(prev => [...prev, newUserMessage]); 
@@ -83,8 +97,9 @@ export const useChatLogic = (initialMessages = [], selectedModelProp) => {
 
     const latestUserMessageForPayload = { 
       role: 'user', 
-      content: userInput,
-      images: imageBase64 ? [imageBase64] : null 
+      content: userInput, // Always send user's prompt to backend
+      images: images,
+      file_type: fileType
     };
 
     const conversationPayload = currentMessages
@@ -92,7 +107,8 @@ export const useChatLogic = (initialMessages = [], selectedModelProp) => {
       .map(m => ({ 
         role: m.role, 
         content: m.role === 'assistant' ? m.response : m.content,
-        images: (m.role === 'user' && m.id === newUserMessage.id -1 && m.imagePreviewUrl) ? m.images : null
+        images: (m.role === 'user' && m.imagePreviewUrl && m.imagePreviewUrl.url) ? [m.imagePreviewUrl.url.split(',')[1]] : null,
+        file_type: m.imagePreviewUrl?.isPdf ? 'pdf' : 'image'
       }))
       .concat([latestUserMessageForPayload]);
 

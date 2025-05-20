@@ -1,4 +1,8 @@
 import React, { useEffect, useRef } from 'react'; // Removed useState
+import * as pdfjsLib from 'pdfjs-dist';
+
+// Set up PDF.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 // InputArea component
 function InputArea({
@@ -16,6 +20,7 @@ function InputArea({
 }) {
   const textareaRef = useRef(null); // Ref for the textarea
   const fileInputRef = useRef(null); // Ref for the file input
+  const canvasRef = useRef(null);
 
   const handleInputChange = (e) => {
     const textarea = e.target;
@@ -62,15 +67,41 @@ function InputArea({
     }
   }, [userInput]);
 
-  const handleImageChange = (e) => {
+  const handleImageChange = async (e) => {
     const file = e.target.files[0];
     if (file) {
       setSelectedImage(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result);
-      };
-      reader.readAsDataURL(file);
+      if (file.type === 'application/pdf') {
+        // Extract text from PDF
+        let extractedText = '';
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+          const numPages = pdf.numPages;
+          for (let i = 1; i <= numPages; i++) {
+            const page = await pdf.getPage(i);
+            const content = await page.getTextContent();
+            const pageText = content.items.map(item => item.str).join(' ');
+            extractedText += pageText + '\n';
+          }
+        } catch (err) {
+          console.error('Failed to extract PDF text:', err);
+        }
+        setImagePreview({
+          isPdf: true,
+          originalName: file.name,
+          pdfText: extractedText
+        });
+      } else {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setImagePreview({
+            url: reader.result,
+            isPdf: false
+          });
+        };
+        reader.readAsDataURL(file);
+      }
     } else {
       setSelectedImage(null);
       setImagePreview(null);
@@ -178,7 +209,7 @@ function InputArea({
           type="file"
           ref={fileInputRef}
           style={{ display: 'none' }}
-          accept="image/*"
+          accept="image/*,.pdf"
           onChange={handleImageChange}
           disabled={isBusy}
         />

@@ -191,7 +191,7 @@ function App() {
   // Prevents default form submission and calls the chat submission handler from useChatLogic
   const handleSubmitWrapper = async (e) => {
     e.preventDefault();
-    await handleChatSubmit(userInput, setUserInput, messages, selectedModel, selectedImage, setSelectedImage, setImagePreview, setMessages);
+    await handleChatSubmit(userInput, setUserInput, messages, selectedModel, selectedImage, setSelectedImage, setImagePreview, setMessages, imagePreview); // Pass imagePreview
   };
 
   const handleStopAll = () => {

@@ -19,6 +19,8 @@ import cProfile
 import pstats
 import io as sysio
 import traceback
+import base64
+from PyPDF2 import PdfReader
 # Import our streaming TTS implementation
 from tts_streaming import StreamingTTS, AudioPlayer
 # Import autocast for mixed precision - works with both CUDA and MPS
@@ -92,6 +94,7 @@ class Message(BaseModel):
     role: str
     content: str
     images: list[str] | None = None  # Added for image input
+    file_type: str | None = None  # Added to distinguish between image and PDF
 
 class ChatRequest(BaseModel):
     model: str
@@ -146,12 +149,27 @@ async def chat(request: ChatRequest):
         for m in request.messages:
             msg_dict = {"role": m.role, "content": m.content}
             if m.images:
-                msg_dict["images"] = m.images
+                # If it's a PDF, extract text from the base64 content
+                if m.file_type == 'pdf':
+                    try:
+                        # Decode base64 PDF content
+                        pdf_content = base64.b64decode(m.images[0])
+                        pdf_file = io.BytesIO(pdf_content)
+                        pdf_reader = PdfReader(pdf_file)
+                        
+                        # Extract text from all pages
+                        pdf_text = ""
+                        for page in pdf_reader.pages:
+                            pdf_text += page.extract_text() + "\n"
+                        
+                        # Add the extracted text to the message content
+                        msg_dict["content"] = f"{m.content}\n\nPDF Content:\n{pdf_text}"
+                    except Exception as e:
+                        print(f"Error processing PDF: {str(e)}")
+                        msg_dict["content"] = f"{m.content}\n\n[Error processing PDF content]"
+                else:
+                    msg_dict["images"] = m.images
             messages_payload.append(msg_dict)
-        
-        # Ensure images are only attached to the last message if it's from the user,
-        # or handle as per Ollama's multi-message image support if applicable.
-        # For now, assuming images are part of the latest user prompt.
         
         client = AsyncClient()
         stream = await client.chat(model=request.model, messages=messages_payload, stream=True)
