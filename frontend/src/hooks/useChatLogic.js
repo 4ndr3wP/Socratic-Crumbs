@@ -13,9 +13,11 @@ const parseThinkResponse = (rawContent) => {
 
   if (thinkStartIndex !== -1 && thinkEndIndex > thinkStartIndex) {
     thinkingText = responseText.substring(thinkStartIndex + thinkTagStart.length, thinkEndIndex).trim();
-    responseText = (responseText.substring(0, thinkStartIndex) + responseText.substring(thinkEndIndex + thinkTagEnd.length)).trim();
+    responseText = (responseText.substring(0, thinkStartIndex) + responseText.substring(thinkEndIndex + thinkTagEnd.length));
     showToggleButton = true;
   }
+  // Trim leading/trailing whitespace and newlines to prevent blank lines
+  responseText = responseText.replace(/^\s+/, "").replace(/\s+$/, "");
   return { thinkingText, responseText, showToggleButton };
 };
 
