@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, WebSocket
+from fastapi import FastAPI, HTTPException, WebSocket, UploadFile, File
 from fastapi.responses import StreamingResponse, Response, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -24,6 +24,7 @@ from tts_streaming import StreamingTTS, AudioPlayer
 # Import autocast for mixed precision - works with both CUDA and MPS
 from torch.amp import autocast
 from mlx_audio.tts.generate import generate_audio
+from mlx_audio.stt.generate import generate as stt_generate
 
 # Enable GPU acceleration for M4 Max
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
@@ -361,6 +362,46 @@ async def text_to_speech(request: TTSRequest):
             status_code=500,
             content={"error": f"TTS processing failed: {str(e)}"}
         )
+
+@app.post("/api/stt")
+async def speech_to_text(file: UploadFile = File(...)):
+    """Accepts an audio file, transcribes it using mlx_audio STT, and returns the text. Cleans up all temp files after processing."""
+    temp_path = f"temp_stt_{int(time.time())}.wav"
+    try:
+        # Save uploaded file to a temp location
+        with open(temp_path, "wb") as f:
+            f.write(await file.read())
+        # Use default model path (adjust as needed)
+        model_path = "mlx-community/whisper-large-v3-turbo"
+        output_path = temp_path + ".txt"
+        # Run STT
+        from mlx_audio.stt.generate import generate as stt_generate
+        segments = stt_generate(model_path=model_path, audio_path=temp_path, output_path=output_path, format="txt", verbose=False)
+        return {"text": getattr(segments, "text", "")}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+    finally:
+        # Always clean up temp files
+        try:
+            # Remove the .wav file
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            # Remove .wav.txt and .wav.txt.txt files
+            txt_path = temp_path + ".txt"
+            if os.path.exists(txt_path):
+                os.remove(txt_path)
+            txt_txt_path = txt_path + ".txt"
+            if os.path.exists(txt_txt_path):
+                os.remove(txt_txt_path)
+            # Remove any lingering temp_stt_*.wav* files (catch-all)
+            for f in os.listdir('.'):
+                if f.startswith('temp_stt_') and (f.endswith('.wav') or f.endswith('.wav.txt') or f.endswith('.wav.txt.txt')):
+                    try:
+                        os.remove(f)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
 # Mount static files
 app.mount("/", StaticFiles(directory="frontend/build", html=True), name="static")

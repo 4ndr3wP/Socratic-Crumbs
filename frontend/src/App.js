@@ -10,6 +10,7 @@ import InputArea from './components/InputArea';
 import AssistantBubble from './components/AssistantBubble';
 import TTSButton from './components/TTSButton';
 import VoiceSelector from './components/VoiceSelector';
+import MicButton from './components/MicButton';
 
 // Import custom hooks to manage specific functionalities
 import { useChatLogic } from './hooks/useChatLogic'; // Manages chat message state and API interactions
@@ -30,7 +31,6 @@ function App() {
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const audioQueue = useRef([]);
   const isProcessing = useRef(false);
-  const [micPressed, setMicPressed] = useState(false);
   const [abortController, setAbortController] = useState(null);
   const [isTTSLoading, setIsTTSLoading] = useState(false);
 
@@ -64,7 +64,6 @@ function App() {
   const processAudioQueue = async (abortSignal) => {
     if (isProcessing.current || audioQueue.current.length === 0) return;
     setIsTTSLoading(false); // Audio is about to play, TTS loading is done
-    const processingStart = Date.now();
     isProcessing.current = true;
     const context = new (window.AudioContext || window.webkitAudioContext)();
     setAudioContext(context);
@@ -146,8 +145,7 @@ function App() {
           !isOverallStreaming) {  // Only process when streaming is complete
         
         const newText = lastMessage.content;
-        const messageCompleteTime = Date.now();
-        console.log(`[${messageCompleteTime}] Message complete, starting TTS processing`);
+        console.log(`[${Date.now()}] Message complete, starting TTS processing`);
 
         // Process the text for TTS
         const processNewText = async () => {
@@ -223,31 +221,10 @@ function App() {
               style={{ marginRight: '20px' }}
             />
             <h2 style={{ margin: '0 20px', padding: 0, minWidth: 'max-content', fontSize: '2rem', fontWeight: 700, letterSpacing: '0.5px' }}>Socratic Crumbs</h2>
-            <button 
-              className={`mic-button${micPressed ? ' pressed' : ''}`}
-              title="Speech to Text (Coming Soon)"
-              style={{
-                background: 'none',
-                border: 'none',
-                padding: '0',
-                cursor: 'pointer',
-                opacity: 0.7,
-                transition: 'opacity 0.2s',
-                marginLeft: '20px',
-                display: 'flex',
-                alignItems: 'center',
-              }}
-              onMouseDown={() => setMicPressed(true)}
-              onMouseUp={() => setMicPressed(false)}
-              onMouseLeave={() => setMicPressed(false)}
-            >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 1C11.2044 1 10.4413 1.31607 9.87868 1.87868C9.31607 2.44129 9 3.20435 9 4V12C9 12.7956 9.31607 13.5587 9.87868 14.1213C10.4413 14.6839 11.2044 15 12 15C12.7956 15 13.5587 14.6839 14.1213 14.1213C14.6839 13.5587 15 12.7956 15 12V4C15 3.20435 14.6839 2.44129 14.1213 1.87868C13.5587 1.31607 12.7956 1 12 1Z" stroke={micPressed ? '#7C3AED' : '#333'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M19 10V12C19 13.8565 18.2625 15.637 16.9497 16.9497C15.637 18.2625 13.8565 19 12 19C10.1435 19 8.36301 18.2625 7.05025 16.9497C5.7375 15.637 5 13.8565 5 12V10" stroke={micPressed ? '#7C3AED' : '#333'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M12 19V23" stroke={micPressed ? '#7C3AED' : '#333'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M8 23H16" stroke={micPressed ? '#7C3AED' : '#333'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
+            <MicButton
+              disabled={isOverallStreaming || isAudioPlaying || isTTSLoading}
+              onResult={text => setUserInput(prev => prev ? prev + ' ' + text : text)}
+            />
           </div>
           <div className="header-bottom" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginTop: '8px' }}>
             <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-start' }}>
