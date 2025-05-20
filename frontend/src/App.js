@@ -9,6 +9,7 @@ import MessageBubble from './components/MessageBubble';
 import InputArea from './components/InputArea';
 import AssistantBubble from './components/AssistantBubble';
 import TTSButton from './components/TTSButton';
+import VoiceSelector from './components/VoiceSelector';
 
 // Import custom hooks to manage specific functionalities
 import { useChatLogic } from './hooks/useChatLogic'; // Manages chat message state and API interactions
@@ -25,8 +26,10 @@ function App() {
   const [isTTSEnalbed, setIsTTSEnalbed] = useState(false);
   const [ttsEnabledTimestamp, setTtsEnabledTimestamp] = useState(null);
   const [audioContext, setAudioContext] = useState(null);
+  const [selectedVoice, setSelectedVoice] = useState('af_heart.pt');
   const audioQueue = useRef([]);
   const isProcessing = useRef(false);
+  const [micPressed, setMicPressed] = useState(false);
 
   // --- Custom Hook Integrations ---
   // Manage AI model data (list of models, selected model, and setter)
@@ -46,6 +49,14 @@ function App() {
   // Manage chat container's scroll behavior (ref, user scroll status, and scroll-to-bottom handler)
   // Dependencies ([messages, isOverallStreaming]) trigger auto-scroll when new messages or streaming occurs
   const { chatContainerRef, isUserScrolled, handleScrollToBottom } = useChatScroll([messages, isOverallStreaming]);
+
+  // Available TTS voices
+  const voices = [
+    'af_heart.pt',
+    'af_bella.pt',
+    'af_nicole.pt',
+    'im_nicola.pt'
+  ];
 
   const processAudioQueue = async () => {
     if (isProcessing.current || audioQueue.current.length === 0) return;
@@ -166,7 +177,8 @@ function App() {
                   'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({ 
-                  text: newText
+                  text: newText,
+                  voice: selectedVoice
                 }),
               });
 
@@ -199,7 +211,7 @@ function App() {
       console.log('No messages, clearing currentText');
       setCurrentText('');
     }
-  }, [messages, isTTSEnalbed, ttsEnabledTimestamp, currentText, isOverallStreaming]);
+  }, [messages, isTTSEnalbed, ttsEnabledTimestamp, currentText, isOverallStreaming, selectedVoice]);
 
   // --- Event Handlers ---
   // Wrapper function for submitting the user's input
@@ -215,20 +227,60 @@ function App() {
     <div className="App"> {/* Main application container */}
       {/* Header section including the application title and model selector */}
       <div className="header">
-        <div className="header-left">
-          <TTSButton 
-            isStreaming={isOverallStreaming}
-            currentText={currentText}
-            onTTSToggle={handleTTSToggle}
-          />
-          <h2>Socratic Crumbs</h2>
+        <div className="header-content" style={{ flexDirection: 'column', display: 'flex', alignItems: 'center', width: '100%' }}>
+          <div className="header-top" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '16px', width: '100%' }}>
+            <TTSButton 
+              isStreaming={isOverallStreaming}
+              currentText={currentText}
+              onTTSToggle={handleTTSToggle}
+            />
+            <h2 style={{ margin: '0 0', padding: 0, minWidth: 'max-content', fontSize: '2rem', fontWeight: 700, letterSpacing: '0.5px' }}>Socratic Crumbs</h2>
+            <button 
+              className={`mic-button${micPressed ? ' pressed' : ''}`}
+              title="Speech to Text (Coming Soon)"
+              style={{
+                background: 'none',
+                border: 'none',
+                padding: '0',
+                cursor: 'pointer',
+                opacity: 0.7,
+                transition: 'opacity 0.2s',
+                marginLeft: '0',
+                display: 'flex',
+                alignItems: 'center',
+              }}
+              onMouseDown={() => setMicPressed(true)}
+              onMouseUp={() => setMicPressed(false)}
+              onMouseLeave={() => setMicPressed(false)}
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 1C11.2044 1 10.4413 1.31607 9.87868 1.87868C9.31607 2.44129 9 3.20435 9 4V12C9 12.7956 9.31607 13.5587 9.87868 14.1213C10.4413 14.6839 11.2044 15 12 15C12.7956 15 13.5587 14.6839 14.1213 14.1213C14.6839 13.5587 15 12.7956 15 12V4C15 3.20435 14.6839 2.44129 14.1213 1.87868C13.5587 1.31607 12.7956 1 12 1Z" stroke={micPressed ? '#7C3AED' : '#333'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M19 10V12C19 13.8565 18.2625 15.637 16.9497 16.9497C15.637 18.2625 13.8565 19 12 19C10.1435 19 8.36301 18.2625 7.05025 16.9497C5.7375 15.637 5 13.8565 5 12V10" stroke={micPressed ? '#7C3AED' : '#333'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M12 19V23" stroke={micPressed ? '#7C3AED' : '#333'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M8 23H16" stroke={micPressed ? '#7C3AED' : '#333'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          </div>
+          <div className="header-bottom" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginTop: '8px' }}>
+            <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-start' }}>
+              <VoiceSelector
+                voices={voices}
+                selectedVoice={selectedVoice}
+                setSelectedVoice={setSelectedVoice}
+                isStreaming={isOverallStreaming}
+              />
+            </div>
+            <div style={{ flex: 1 }}></div>
+            <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
+              <ModelSelector
+                models={models}
+                selectedModel={selectedModel}
+                setSelectedModel={setSelectedModel}
+                isOverallStreaming={isOverallStreaming}
+              />
+            </div>
+          </div>
         </div>
-        <ModelSelector
-          models={models} // Pass the list of available models
-          selectedModel={selectedModel} // Pass the currently selected model
-          setSelectedModel={setSelectedModel} // Pass the function to update the selected model
-          isOverallStreaming={isOverallStreaming} // Pass streaming status to disable selector during streaming
-        />
       </div>
 
       {/* Chat messages container, ref is managed by useChatScroll */}

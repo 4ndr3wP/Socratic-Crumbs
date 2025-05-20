@@ -58,10 +58,21 @@ function TTSButton({ isStreaming, currentText, onTTSToggle }) {
       title={isTTSEnabled ? "Disable TTS" : "Enable TTS"}
       style={{ 
         cursor: 'pointer',
-        animation: isPlaying ? 'pulse 1.5s infinite' : 'none'
+        animation: isPlaying ? 'pulse 1.5s infinite' : 'none',
+        marginRight: '8px', // Match mic icon spacing
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
       }}
     >
-      {isPlaying ? "🔊" : isTTSEnabled ? "🔉" : "🔈"}
+      <svg width="28" height="28" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <g>
+          <polygon points="6,16 20,16 28,8 28,40 20,32 6,32" fill="#fff" stroke={isTTSEnabled || isPlaying ? '#7C3AED' : '#333'} strokeWidth="2.5"/>
+          <path d="M34 18C36.6667 20.6667 36.6667 27.3333 34 30" stroke={isTTSEnabled || isPlaying ? '#7C3AED' : '#333'} strokeWidth="2.5" fill="none"/>
+          <path d="M38 14C42.6667 18.6667 42.6667 29.3333 38 34" stroke={isTTSEnabled || isPlaying ? '#7C3AED' : '#333'} strokeWidth="2.5" fill="none"/>
+          <path d="M42 10C49.3333 17.3333 49.3333 30.6667 42 38" stroke={isTTSEnabled || isPlaying ? '#7C3AED' : '#333'} strokeWidth="2.5" fill="none"/>
+        </g>
+      </svg>
     </button>
   );
 }
