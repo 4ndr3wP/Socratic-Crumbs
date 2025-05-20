@@ -111,31 +111,69 @@ function InputArea({
     <form onSubmit={onFormSubmit} className="input-area" style={{ width: '100%', padding: '16px', background: '#fff', borderTop: '1px solid #eee' }}>
       <div className="input-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%' }}>
         {/* Attachment icon */}
-        <button
-          type="button"
-          onClick={triggerFileInput}
-          className="attach-image-button"
-          disabled={isBusy}
-          style={{
-            background: 'none',
-            border: 'none',
-            padding: 0,
-            marginRight: '4px',
-            cursor: isBusy ? 'not-allowed' : 'pointer',
-            opacity: isBusy ? 0.5 : 1,
-            display: 'flex',
-            alignItems: 'center',
-            height: '36px'
-          }}
-        >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M14 2H6C4.89543 2 4 2.89543 4 4V20C4 21.1046 4.89543 22 6 22H18C19.1046 22 20 21.1046 20 20V8L14 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M14 2V8H20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M16 13H8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M16 17H8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M10 9H9H8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </button>
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '36px' }}>
+          <button
+            type="button"
+            onClick={selectedImage ? () => { setSelectedImage(null); setImagePreview(null); if(fileInputRef.current) fileInputRef.current.value = null; } : triggerFileInput}
+            className="attach-image-button"
+            disabled={isBusy}
+            style={{
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              marginRight: '4px',
+              cursor: isBusy ? 'not-allowed' : 'pointer',
+              opacity: isBusy ? 0.5 : 1,
+              display: 'flex',
+              alignItems: 'center',
+              height: '36px',
+              color: selectedImage ? '#2563eb' : '#333',
+              position: 'relative',
+              zIndex: 1
+            }}
+            title={selectedImage ? 'Remove attachment' : 'Attach image'}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M14 2H6C4.89543 2 4 2.89543 4 4V20C4 21.1046 4.89543 22 6 22H18C19.1046 22 20 21.1046 20 20V8L14 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M14 2V8H20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M16 13H8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M16 17H8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M10 9H9H8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            {selectedImage && (
+              <span
+                style={{
+                  position: 'absolute',
+                  top: '-4px',
+                  right: '-4px',
+                  background: '#f3f4f6',
+                  color: '#888',
+                  borderRadius: '50%',
+                  width: '16px',
+                  height: '16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.07)',
+                  border: '1px solid #ddd',
+                  cursor: 'pointer',
+                  zIndex: 2
+                }}
+                onClick={e => {
+                  e.stopPropagation();
+                  setSelectedImage(null);
+                  setImagePreview(null);
+                  if(fileInputRef.current) fileInputRef.current.value = null;
+                }}
+                title="Remove attachment"
+              >
+                ×
+              </span>
+            )}
+          </button>
+        </div>
         <input
           type="file"
           ref={fileInputRef}
