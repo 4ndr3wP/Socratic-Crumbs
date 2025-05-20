@@ -25,6 +25,7 @@ from tts_streaming import StreamingTTS, AudioPlayer
 from torch.amp import autocast
 from mlx_audio.tts.generate import generate_audio
 from mlx_audio.stt.generate import generate as stt_generate
+import unicodedata
 
 # Enable GPU acceleration for M4 Max
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
@@ -228,6 +229,12 @@ async def stream_tts(websocket: WebSocket, client_id: str):
                 if not text:
                     await websocket.send_json({"status": "error", "message": "No text provided"})
                     continue
+
+                # Clean the text before TTS processing
+                cleaned_text = preprocess_text_for_tts(text)
+                if not cleaned_text:
+                    await websocket.send_json({"status": "error", "message": "No text remaining after cleaning"})
+                    continue
                 
                 # Stop any existing generation first
                 if active_generation:
@@ -241,7 +248,7 @@ async def stream_tts(websocket: WebSocket, client_id: str):
                 output_path = f"tts_{timestamp}.wav"
                 
                 generate_audio(
-                    text=text,
+                    text=cleaned_text,
                     voice=voice,
                     speed=VOICE_SPEEDS.get(voice, 1.0),
                     lang_code="a",
@@ -290,6 +297,30 @@ async def stream_tts(websocket: WebSocket, client_id: str):
         active_generation = False
         tts_manager.disconnect(client_id)
 
+def preprocess_text_for_tts(text: str) -> str:
+    """Clean text before sending to TTS to avoid reading formatting marks and emojis."""
+    # Remove emojis and other special characters
+    emoji_pattern = re.compile("["
+        u"\U0001F600-\U0001F64F"  # emoticons
+        u"\U0001F300-\U0001F5FF"  # symbols & pictographs
+        u"\U0001F680-\U0001F6FF"  # transport & map symbols
+        u"\U0001F1E0-\U0001F1FF"  # flags (iOS)
+        u"\U00002702-\U000027B0"  # dingbats
+        u"\U000024C2-\U0001F251" 
+        "]+", flags=re.UNICODE)
+    text = emoji_pattern.sub('', text)
+    
+    # Remove markdown formatting marks
+    text = re.sub(r'[*_~`]', '', text)
+    
+    # Remove any remaining control characters
+    text = ''.join(ch for ch in text if unicodedata.category(ch)[0] != 'C')
+    
+    # Normalize whitespace
+    text = ' '.join(text.split())
+    
+    return text.strip()
+
 # Optimize TTS processing with two options:
 # 1. Traditional approach (batched with lower latency)
 # 2. Real-time streaming for immediate feedback
@@ -311,6 +342,14 @@ async def text_to_speech(request: TTSRequest):
                 content={"error": "No text provided"}
             )
 
+        # Clean the text before TTS processing
+        cleaned_text = preprocess_text_for_tts(request.text)
+        if not cleaned_text:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "No text remaining after cleaning"}
+            )
+
         # Get the speed for the selected voice
         speed = VOICE_SPEEDS.get(request.voice, 1.0)
 
@@ -321,7 +360,7 @@ async def text_to_speech(request: TTSRequest):
         try:
             # Generate audio using mlx_audio.tts.generate
             generate_audio(
-                text=request.text,
+                text=cleaned_text,
                 voice=request.voice,
                 speed=speed,
                 lang_code="a",
