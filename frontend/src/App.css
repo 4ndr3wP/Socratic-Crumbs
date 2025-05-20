@@ -18,6 +18,7 @@ body {
   position: sticky;
   top: 0;
   z-index: 100;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
 
 .header-content {
@@ -260,6 +261,18 @@ body {
   color: #000;
 }
 
+/* Assistant bubble content wrapper */
+.assistant-bubble-content {
+  margin: 0;
+  padding: 0;
+  display: block;
+}
+
+.assistant-bubble-content > *:first-child {
+  margin-top: 0;
+  padding-top: 0;
+}
+
 /* Typing indicator */
 .typing-indicator { 
   display: inline-block; 
@@ -295,6 +308,7 @@ body {
   right: 0;
   z-index: 100;
   box-sizing: border-box;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.2);
 }
 
 .input-area textarea {
