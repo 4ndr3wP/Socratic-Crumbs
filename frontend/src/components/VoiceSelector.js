@@ -1,8 +1,30 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 
 function VoiceSelector({ voices, selectedVoice, setSelectedVoice, isStreaming }) {
   const handleVoiceChange = (e) => {
-    setSelectedVoice(e.target.value);
+    const newVoice = e.target.value;
+    setSelectedVoice(newVoice);
+    // Save the selected voice to localStorage
+    localStorage.setItem('lastSelectedVoice', newVoice);
+  };
+
+  // Load the last selected voice on component mount
+  useEffect(() => {
+    const lastVoice = localStorage.getItem('lastSelectedVoice');
+    if (lastVoice && voices.includes(lastVoice)) {
+      setSelectedVoice(lastVoice);
+    }
+  }, [voices, setSelectedVoice]);
+
+  const formatVoiceName = (voice) => {
+    // Remove prefixes and capitalize each word
+    return voice
+      .replace('af_', '')
+      .replace('bf_', '')
+      .replace('im_', '')
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
   };
 
   return (
@@ -23,7 +45,7 @@ function VoiceSelector({ voices, selectedVoice, setSelectedVoice, isStreaming })
       >
         {voices.map((voice) => (
           <option key={voice} value={voice}>
-            {voice.replace('af_', '').replace('bf_', '').replace('.pt', '')}
+            {formatVoiceName(voice)}
           </option>
         ))}
       </select>

@@ -26,10 +26,13 @@ function App() {
   const [isTTSEnalbed, setIsTTSEnalbed] = useState(false);
   const [ttsEnabledTimestamp, setTtsEnabledTimestamp] = useState(null);
   const [audioContext, setAudioContext] = useState(null);
-  const [selectedVoice, setSelectedVoice] = useState('af_heart.pt');
+  const [selectedVoice, setSelectedVoice] = useState('af_heart');
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const audioQueue = useRef([]);
   const isProcessing = useRef(false);
   const [micPressed, setMicPressed] = useState(false);
+  const [abortController, setAbortController] = useState(null);
+  const [isTTSLoading, setIsTTSLoading] = useState(false);
 
   // --- Custom Hook Integrations ---
   // Manage AI model data (list of models, selected model, and setter)
@@ -52,75 +55,58 @@ function App() {
 
   // Available TTS voices
   const voices = [
-    'af_heart.pt',
-    'af_bella.pt',
-    'af_nicole.pt',
-    'im_nicola.pt'
+    'af_bella',
+    'af_heart',
+    'af_nicole',
+    'im_nicola'
   ];
 
-  const processAudioQueue = async () => {
+  const processAudioQueue = async (abortSignal) => {
     if (isProcessing.current || audioQueue.current.length === 0) return;
-    
+    setIsTTSLoading(false); // Audio is about to play, TTS loading is done
     const processingStart = Date.now();
-    console.log(`[${processingStart}] Starting audio processing`);
     isProcessing.current = true;
     const context = new (window.AudioContext || window.webkitAudioContext)();
     setAudioContext(context);
-
+    setIsAudioPlaying(true);
     try {
       const audioData = audioQueue.current[0];
-      console.log(`[${Date.now()}] Processing audio data, size:`, audioData.byteLength);
-      
-      try {
-        const blobCreateStart = Date.now();
-        // Convert the chunk to a Blob and create an object URL
-        const blob = new Blob([audioData], { type: 'audio/wav' });
-        const url = URL.createObjectURL(blob);
-        console.log(`[${Date.now()}] Blob created, time: ${Date.now() - blobCreateStart}ms`);
-        
-        const fetchStart = Date.now();
-        const response = await fetch(url);
-        const arrayBuffer = await response.arrayBuffer();
-        console.log(`[${Date.now()}] Audio data fetched, time: ${Date.now() - fetchStart}ms`);
-        
-        const decodeStart = Date.now();
-        console.log(`[${decodeStart}] Starting audio buffer decode`);
-        const audioBuffer = await context.decodeAudioData(arrayBuffer);
-        console.log(`[${Date.now()}] Audio buffer decoded, time: ${Date.now() - decodeStart}ms`);
-        
-        const source = context.createBufferSource();
-        source.connect(context.destination);
-        source.buffer = audioBuffer;
-        
-        // Calculate start time based on current context time
-        const startTime = context.currentTime;
-        console.log(`[${Date.now()}] Starting audio playback, total processing time: ${Date.now() - processingStart}ms`);
-        
-        // Create a promise that resolves when the audio finishes playing
-        await new Promise((resolve) => {
-          source.onended = () => {
-            const playbackEnd = Date.now();
-            console.log(`[${playbackEnd}] Audio finished playing, total time from start: ${playbackEnd - processingStart}ms`);
-            URL.revokeObjectURL(url);
-            resolve();
-          };
-          source.start(startTime);
-        });
-        
-      } catch (error) {
-        console.error('Error processing audio:', error);
+      if (abortSignal && abortSignal.aborted) {
+        setIsAudioPlaying(false);
+        return;
       }
-      
-      // Clear the queue after processing
-      audioQueue.current = [];
-      
+      const blob = new Blob([audioData], { type: 'audio/wav' });
+      const url = URL.createObjectURL(blob);
+      const response = await fetch(url);
+      const arrayBuffer = await response.arrayBuffer();
+      if (abortSignal && abortSignal.aborted) {
+        setIsAudioPlaying(false);
+        return;
+      }
+      const audioBuffer = await context.decodeAudioData(arrayBuffer);
+      const source = context.createBufferSource();
+      source.connect(context.destination);
+      source.buffer = audioBuffer;
+      const startTime = context.currentTime;
+      await new Promise((resolve) => {
+        source.onended = () => {
+          URL.revokeObjectURL(url);
+          setIsAudioPlaying(false);
+          resolve();
+        };
+        if (abortSignal && abortSignal.aborted) {
+          setIsAudioPlaying(false);
+          resolve();
+        } else {
+          source.start(startTime);
+        }
+      });
     } catch (error) {
-      console.error('Error in audio processing:', error);
+      setIsAudioPlaying(false);
     } finally {
       isProcessing.current = false;
-      if (audioQueue.current.length === 0) {
-        console.log(`[${Date.now()}] Audio processing complete, closing context`);
-        context.close();
+      if (audioQueue.current.length === 0 && audioContext) {
+        audioContext.close();
         setAudioContext(null);
       }
     }
@@ -165,42 +151,31 @@ function App() {
 
         // Process the text for TTS
         const processNewText = async () => {
-          // Only process if we have text and it's different from current text
           if (newText && newText !== currentText) {
+            let controller = new AbortController();
+            setAbortController(controller);
+            setIsTTSLoading(true); // TTS fetch is starting
             try {
-              const ttsRequestStart = Date.now();
-              console.log(`[${ttsRequestStart}] Sending TTS request, delay from message complete: ${ttsRequestStart - messageCompleteTime}ms`);
-              
               const response = await fetch('/api/tts', {
                 method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ 
-                  text: newText,
-                  voice: selectedVoice
-                }),
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: newText, voice: selectedVoice, is_streaming: false }),
+                signal: controller.signal
               });
-
-              if (!response.ok) {
-                throw new Error(`TTS request failed: ${response.status} ${response.statusText}`);
-              }
-
-              const ttsResponseReceived = Date.now();
-              console.log(`[${ttsResponseReceived}] TTS response received, processing time: ${ttsResponseReceived - ttsRequestStart}ms`);
-              
+              if (!response.ok) throw new Error(`TTS request failed: ${response.status} ${response.statusText}`);
               const audioData = await response.arrayBuffer();
-              const audioDataReceived = Date.now();
-              console.log(`[${audioDataReceived}] Audio data received, size: ${audioData.byteLength} bytes, download time: ${audioDataReceived - ttsResponseReceived}ms`);
-              
-              // Add to queue and process
+              if (controller.signal.aborted) return;
               audioQueue.current = [audioData];
-              if (!isProcessing.current) {
-                console.log(`[${Date.now()}] Starting audio processing`);
-                processAudioQueue();
-              }
+              if (!isProcessing.current) processAudioQueue(controller.signal);
             } catch (error) {
-              console.error('TTS error:', error);
+              if (controller.signal.aborted) {
+                // Aborted by user
+              } else {
+                console.error('TTS error:', error);
+              }
+            } finally {
+              setAbortController(null);
+              setIsTTSLoading(false); // TTS fetch is done or aborted
             }
           }
         };
@@ -217,9 +192,21 @@ function App() {
   // Wrapper function for submitting the user's input
   // Prevents default form submission and calls the chat submission handler from useChatLogic
   const handleSubmitWrapper = async (e) => {
-    e.preventDefault(); // Prevent page reload on form submission
-    // Pass current userInput, its setter, the messages array, selected model, selected image, and its setter
+    e.preventDefault();
     await handleChatSubmit(userInput, setUserInput, messages, selectedModel, selectedImage, setSelectedImage, setImagePreview, setMessages);
+  };
+
+  const handleStopAll = () => {
+    handleStopStreaming();
+    if (abortController) abortController.abort();
+    if (audioContext) {
+      audioContext.close();
+      setAudioContext(null);
+    }
+    audioQueue.current = [];
+    isProcessing.current = false;
+    setIsAudioPlaying(false);
+    setIsTTSLoading(false);
   };
 
   // --- JSX Rendering ---
@@ -233,8 +220,9 @@ function App() {
               isStreaming={isOverallStreaming}
               currentText={currentText}
               onTTSToggle={handleTTSToggle}
+              style={{ marginRight: '20px' }}
             />
-            <h2 style={{ margin: '0 0', padding: 0, minWidth: 'max-content', fontSize: '2rem', fontWeight: 700, letterSpacing: '0.5px' }}>Socratic Crumbs</h2>
+            <h2 style={{ margin: '0 20px', padding: 0, minWidth: 'max-content', fontSize: '2rem', fontWeight: 700, letterSpacing: '0.5px' }}>Socratic Crumbs</h2>
             <button 
               className={`mic-button${micPressed ? ' pressed' : ''}`}
               title="Speech to Text (Coming Soon)"
@@ -245,7 +233,7 @@ function App() {
                 cursor: 'pointer',
                 opacity: 0.7,
                 transition: 'opacity 0.2s',
-                marginLeft: '0',
+                marginLeft: '20px',
                 display: 'flex',
                 alignItems: 'center',
               }}
@@ -307,15 +295,17 @@ function App() {
 
       {/* Input area for the user to type messages */}
       <InputArea
-        userInput={userInput} // Current value of the input field
-        setUserInput={setUserInput} // Function to update the input field's value
-        isOverallStreaming={isOverallStreaming} // Pass streaming status to disable input during streaming
-        handleSubmit={handleSubmitWrapper} // Pass the submit handler wrapper
-        handleStopStreaming={handleStopStreaming} // Pass the stop streaming handler
-        selectedImage={selectedImage} // Pass selected image
-        setSelectedImage={setSelectedImage} // Pass setter for selected image
-        imagePreview={imagePreview} // Pass image preview URL
-        setImagePreview={setImagePreview} // Pass setter for image preview URL
+        userInput={userInput}
+        setUserInput={setUserInput}
+        isOverallStreaming={isOverallStreaming || isAudioPlaying || isTTSLoading}
+        handleSubmit={handleSubmitWrapper}
+        handleStopStreaming={handleStopAll}
+        selectedImage={selectedImage}
+        setSelectedImage={setSelectedImage}
+        imagePreview={imagePreview}
+        setImagePreview={setImagePreview}
+        isAudioPlaying={isAudioPlaying}
+        isTTSLoading={isTTSLoading}
       />
     </div>
   );

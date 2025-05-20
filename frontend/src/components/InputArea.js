@@ -10,7 +10,9 @@ function InputArea({
   selectedImage, // New prop
   setSelectedImage, // New prop
   imagePreview, // New prop
-  setImagePreview // New prop
+  setImagePreview, // New prop
+  isAudioPlaying,
+  isTTSLoading
 }) {
   const textareaRef = useRef(null); // Ref for the textarea
   const fileInputRef = useRef(null); // Ref for the file input
@@ -81,66 +83,52 @@ function InputArea({
 
   const onFormSubmit = (e) => {
     e.preventDefault();
-    handleSubmit(e); // Pass the event
+    if (isOverallStreaming || isAudioPlaying) {
+      handleStopStreaming();
+    } else {
+      handleSubmit(e);
+    }
   };
 
+  const isBusy = isOverallStreaming || isAudioPlaying || isTTSLoading;
+  const hasText = userInput.trim().length > 0;
+
+  // Button color logic
+  let buttonBg = '#f3f4f6'; // default grey
+  let buttonColor = '#9ca3af'; // default grey text
+  let buttonBorder = 'none';
+  if (isBusy) {
+    buttonBg = '#fff'; // white for Stop
+    buttonColor = '#333'; // dark text
+    buttonBorder = '1px solid #ddd'; // subtle border
+  } else if (hasText) {
+    buttonBg = '#2563eb'; // blue-600 (matches prompt bubble)
+    buttonColor = 'white';
+    buttonBorder = 'none';
+  }
+
   return (
-    <form className="input-area" onSubmit={onFormSubmit}>
-      {imagePreview && (
-        <div 
-          className="image-preview-container"
-          style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            marginRight: '8px', 
-            padding: '2px 4px', // Adjusted padding
-            border: '1px solid #ddd', 
-            borderRadius: '4px' 
+    <form onSubmit={onFormSubmit} className="input-area" style={{ width: '100%', padding: '16px', background: '#fff', borderTop: '1px solid #eee' }}>
+      <div className="input-container" style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%' }}>
+        {/* Attachment icon */}
+        <button
+          type="button"
+          onClick={triggerFileInput}
+          className="attach-image-button"
+          disabled={isBusy}
+          style={{
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            marginRight: '4px',
+            cursor: isBusy ? 'not-allowed' : 'pointer',
+            opacity: isBusy ? 0.5 : 1,
+            display: 'flex',
+            alignItems: 'center',
+            height: '36px'
           }}
         >
-          <img 
-            src={imagePreview} 
-            alt="Preview" 
-            className="image-preview" 
-            style={{ 
-              maxHeight: '40px', 
-              maxWidth: '60px', 
-              borderRadius: '3px', 
-              objectFit: 'cover' 
-            }}
-          />
-          <button 
-            type="button" 
-            onClick={() => { 
-              setSelectedImage(null); 
-              setImagePreview(null); 
-              if(fileInputRef.current) fileInputRef.current.value = null; 
-            }} 
-            className="remove-image-button"
-            style={{
-              background: 'none',
-              border: 'none',
-              color: '#888',
-              cursor: 'pointer',
-              fontSize: '20px', // Slightly larger 'x'
-              padding: '0 0 0 6px', // Padding to the left of 'x'
-              lineHeight: '1',
-              fontWeight: 'bold' // Make 'x' bolder
-            }}
-          >
-            &times;
-          </button>
-        </div>
-      )}
-      {!imagePreview && ( // Only show attach button if no image is selected
-        <button 
-          type="button" 
-          onClick={triggerFileInput} 
-          className="attach-image-button"
-          disabled={isOverallStreaming}
-          style={{ marginRight: '8px' }}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M14 2H6C4.89543 2 4 2.89543 4 4V20C4 21.1046 4.89543 22 6 22H18C19.1046 22 20 21.1046 20 20V8L14 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
             <path d="M14 2V8H20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
             <path d="M16 13H8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -148,37 +136,70 @@ function InputArea({
             <path d="M10 9H9H8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </button>
-      )}
-      <input
-        type="file"
-        ref={fileInputRef}
-        style={{ display: 'none' }}
-        accept="image/*"
-        onChange={handleImageChange}
-        disabled={isOverallStreaming} // selectedImage check is implicitly handled by !imagePreview for the trigger button
-      />
-      <textarea
-        ref={textareaRef} // Add ref to textarea
-        value={userInput}
-        onChange={handleInputChange}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault(); // Prevent newline in textarea
-            if ((userInput.trim() || selectedImage) && e.target.form) { // Allow submit if image is selected
-              e.target.form.requestSubmit(); // Trigger form submission
+        <input
+          type="file"
+          ref={fileInputRef}
+          style={{ display: 'none' }}
+          accept="image/*"
+          onChange={handleImageChange}
+          disabled={isBusy}
+        />
+        {/* Text box */}
+        <textarea
+          ref={textareaRef}
+          value={userInput}
+          onChange={handleInputChange}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              if ((userInput.trim() || selectedImage) && e.target.form) {
+                e.target.form.requestSubmit();
+              }
             }
-          }
-        }}
-        placeholder="Type your message..."
-        disabled={isOverallStreaming}
-        rows="1" // Start with one row height
-        style={{ overflowY: 'hidden' }} // Initially hide scrollbar, JS manages it
-      />
-      {!isOverallStreaming ? (
-        <button type="submit" disabled={!(userInput.trim() || selectedImage)}>Send</button> // Allow submit if image is selected
-      ) : (
-        <button type="button" onClick={handleStopStreaming}>Stop</button>
-      )}
+          }}
+          placeholder="Type your message..."
+          disabled={isBusy}
+          rows={1}
+          style={{
+            resize: 'none',
+            width: '100%',
+            minHeight: '36px',
+            maxHeight: '120px',
+            padding: '8px 12px',
+            borderRadius: '8px',
+            border: '1px solid #e5e7eb',
+            backgroundColor: '#fff',
+            fontSize: '15px',
+            lineHeight: '1.5',
+            color: '#1f2937',
+            outline: 'none',
+            transition: 'border-color 0.2s',
+            opacity: isBusy ? 0.7 : 1,
+            cursor: isBusy ? 'not-allowed' : 'text',
+            marginRight: '8px',
+            flex: 1
+          }}
+        />
+        {/* Send/Stop button */}
+        <button
+          type="submit"
+          disabled={isBusy ? false : !hasText}
+          style={{
+            padding: '8px 22px',
+            backgroundColor: buttonBg,
+            color: buttonColor,
+            border: buttonBorder,
+            borderRadius: '7px',
+            cursor: isBusy ? 'pointer' : (!hasText ? 'not-allowed' : 'pointer'),
+            fontSize: '15px',
+            fontWeight: 600,
+            transition: 'all 0.2s',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
+          }}
+        >
+          {isBusy ? 'Stop' : 'Send'}
+        </button>
+      </div>
     </form>
   );
 }
