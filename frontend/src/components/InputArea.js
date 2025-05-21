@@ -22,66 +22,70 @@ function InputArea({
   const fileInputRef = useRef(null);
   const canvasRef = useRef(null);
   const [isRecording, setIsRecording] = useState(false);
-  const recognitionRef = useRef(null);
-  const [interimText, setInterimText] = useState('');
+  const [mediaRecorder, setMediaRecorder] = useState(null);
+  const [audioChunks, setAudioChunks] = useState([]);
+  const [isUploading, setIsUploading] = useState(false);
 
-  // Initialize Apple's Speech Recognition
-  useEffect(() => {
-    if ('webkitSpeechRecognition' in window) {
-      recognitionRef.current = new window.webkitSpeechRecognition();
-      recognitionRef.current.continuous = true;
-      recognitionRef.current.interimResults = true;
-      recognitionRef.current.lang = 'en-US';
-
-      recognitionRef.current.onresult = (event) => {
-        let finalTranscript = '';
-        let interimTranscript = '';
-
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript;
-          if (event.results[i].isFinal) {
-            finalTranscript += transcript;
-          } else {
-            interimTranscript += transcript;
-          }
-        }
-
-        // Update the input with both final and interim results
-        if (finalTranscript) {
-          setUserInput(prev => prev ? prev + ' ' + finalTranscript : finalTranscript);
-          setInterimText('');
-        } else {
-          setInterimText(interimTranscript);
-        }
-      };
-
-      recognitionRef.current.onerror = (event) => {
-        console.error('Speech recognition error:', event.error);
-        setIsRecording(false);
-        setInterimText('');
-      };
-
-      recognitionRef.current.onend = () => {
-        setIsRecording(false);
-        setInterimText('');
-      };
-    }
-
-    return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
-    };
-  }, [setUserInput]);
-
-  const handleMicClick = () => {
-    if (!recognitionRef.current) return;
-    
+  const handleMicClick = async () => {
+    console.log('Mic button clicked. isRecording:', isRecording);
     if (isRecording) {
-      recognitionRef.current.stop();
+      if (mediaRecorder) {
+        console.log('Stopping mediaRecorder...');
+        mediaRecorder.stop();
+      }
+      setIsRecording(false);
     } else {
-      recognitionRef.current.start();
-      setIsRecording(true);
+      if (navigator.mediaDevices && window.MediaRecorder) {
+        try {
+          console.log('Requesting audio stream...');
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
+          const recorder = new window.MediaRecorder(stream, { mimeType });
+          setMediaRecorder(recorder);
+          // Use a local variable for audio chunks
+          let localAudioChunks = [];
+          recorder.ondataavailable = (e) => {
+            console.log('ondataavailable called, data size:', e.data.size);
+            if (e.data.size > 0) {
+              localAudioChunks.push(e.data);
+            }
+          };
+          recorder.onstop = async () => {
+            console.log('Recorder stopped. localAudioChunks:', localAudioChunks.length);
+            const audioBlob = new Blob(localAudioChunks, { type: mimeType });
+            console.log('Audio Blob type:', audioBlob.type, 'size:', audioBlob.size);
+            setIsUploading(true);
+            try {
+              const formData = new FormData();
+              formData.append('file', audioBlob, 'recording.webm'); // use .webm extension
+              console.log('Uploading audio to STT server...');
+              const response = await fetch('http://localhost:8000/api/stt', {
+                method: 'POST',
+                body: formData,
+              });
+              console.log('STT server response status:', response.status);
+              const data = await response.json(); // Parse JSON
+              console.log('STT server response data:', data);
+              if (data && data.text) {
+                setUserInput(prev => prev ? prev + ' ' + data.text : data.text);
+              } else if (data && data.error) {
+                setUserInput(prev => prev ? prev + ' [STT error: ' + data.error + ']' : '[STT error: ' + data.error + ']');
+              }
+            } catch (err) {
+              console.error('STT upload failed', err);
+            } finally {
+              setIsUploading(false);
+            }
+          };
+          recorder.start();
+          setIsRecording(true);
+          console.log('Recording started.');
+        } catch (err) {
+          console.error('Could not start audio recording', err);
+        }
+      } else {
+        alert('Audio recording not supported in this browser.');
+      }
     }
   };
 
@@ -280,7 +284,7 @@ function InputArea({
         <div style={{ position: 'relative', flex: 1 }}>
           <textarea
             ref={textareaRef}
-            value={userInput + (interimText ? ' ' + interimText : '')}
+            value={userInput}
             onChange={handleInputChange}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -316,7 +320,7 @@ function InputArea({
           <button
             type="button"
             onClick={handleMicClick}
-            disabled={isBusy}
+            disabled={isBusy || isUploading}
             style={{
               position: 'absolute',
               right: '12px',
@@ -325,14 +329,14 @@ function InputArea({
               background: 'none',
               border: 'none',
               padding: '4px',
-              cursor: isBusy ? 'not-allowed' : 'pointer',
-              opacity: isBusy ? 0.5 : 1,
+              cursor: isBusy || isUploading ? 'not-allowed' : 'pointer',
+              opacity: isBusy || isUploading ? 0.5 : 1,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               zIndex: 2,
             }}
-            title={isRecording ? 'Stop recording' : 'Start recording'}
+            title={isRecording ? 'Stop recording' : (isUploading ? 'Transcribing...' : 'Start recording')}
           >
             {isRecording && (
               <div style={{
@@ -348,12 +352,20 @@ function InputArea({
                 zIndex: 0,
               }} />
             )}
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ position: 'relative', zIndex: 1 }}>
-              <path d="M12 1C11.2 1 10.44 1.32 9.88 1.88C9.32 2.44 9 3.2 9 4V12C9 12.8 9.32 13.56 9.88 14.12C10.44 14.68 11.2 15 12 15C12.8 15 13.56 14.68 14.12 14.12C14.68 13.56 15 12.8 15 12V4C15 3.2 14.68 2.44 14.12 1.88C13.56 1.32 12.8 1 12 1Z" stroke={isRecording ? '#7C3AED' : '#888'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M19 10V12C19 13.86 18.26 15.64 16.95 16.95C15.64 18.26 13.86 19 12 19C10.14 19 8.36 18.26 7.05 16.95C5.74 15.64 5 13.86 5 12V10" stroke={isRecording ? '#7C3AED' : '#888'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M12 19V23" stroke={isRecording ? '#7C3AED' : '#888'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M8 23H16" stroke={isRecording ? '#7C3AED' : '#888'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
+            {isUploading ? (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ position: 'relative', zIndex: 1 }}>
+                <circle cx="12" cy="12" r="10" stroke="#7C3AED" strokeWidth="3" fill="none" strokeDasharray="60" strokeDashoffset="30">
+                  <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite" />
+                </circle>
+              </svg>
+            ) : (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ position: 'relative', zIndex: 1 }}>
+                <path d="M12 1C11.2 1 10.44 1.32 9.88 1.88C9.32 2.44 9 3.2 9 4V12C9 12.8 9.32 13.56 9.88 14.12C10.44 14.68 11.2 15 12 15C12.8 15 13.56 14.68 14.12 14.12C14.68 13.56 15 12.8 15 12V4C15 3.2 14.68 2.44 14.12 1.88C13.56 1.32 12.8 1 12 1Z" stroke={isRecording ? '#7C3AED' : '#888'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M19 10V12C19 13.86 18.26 15.64 16.95 16.95C15.64 18.26 13.86 19 12 19C10.14 19 8.36 18.26 7.05 16.95C5.74 15.64 5 13.86 5 12V10" stroke={isRecording ? '#7C3AED' : '#888'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M12 19V23" stroke={isRecording ? '#7C3AED' : '#888'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M8 23H16" stroke={isRecording ? '#7C3AED' : '#888'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            )}
           </button>
         </div>
         {/* Send/Stop button */}

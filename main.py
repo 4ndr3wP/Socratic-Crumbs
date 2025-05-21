@@ -28,6 +28,7 @@ from torch.amp import autocast
 from mlx_audio.tts.generate import generate_audio
 from mlx_audio.stt.generate import generate as stt_generate
 import unicodedata
+from subprocess import run, CalledProcessError
 
 # Enable GPU acceleration for M4 Max
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
@@ -422,43 +423,81 @@ async def text_to_speech(request: TTSRequest):
 
 @app.post("/api/stt")
 async def speech_to_text(file: UploadFile = File(...)):
-    """Accepts an audio file, transcribes it using mlx_audio STT, and returns the text. Cleans up all temp files after processing."""
-    temp_path = f"temp_stt_{int(time.time())}.wav"
+    """Accepts an audio file (webm or wav), converts if needed, transcribes it using mlx_audio STT, and returns the text. Cleans up all temp files after processing."""
+    import shutil
+    import mimetypes
+    import uuid
+    temp_id = uuid.uuid4().hex
+    temp_webm = f"temp_stt_{temp_id}.webm"
+    temp_wav = f"temp_stt_{temp_id}.wav"
     try:
         # Save uploaded file to a temp location
-        with open(temp_path, "wb") as f:
-            f.write(await file.read())
+        file_bytes = await file.read()
+        with open(temp_webm, "wb") as f:
+            f.write(file_bytes)
+        # Check for empty/corrupt files
+        if os.path.getsize(temp_webm) < 1000:
+            return JSONResponse(status_code=400, content={"error": "Uploaded audio file is empty or too small."})
+        # Check if file is actually webm or wav by inspecting the header
+        is_webm = file.filename.endswith('.webm') or (file_bytes[:4] == b'\x1A\x45\xDF\xA3')
+        if is_webm:
+            ffmpeg_success = False
+            ffmpeg_errors = []
+            # Try ffmpeg with no -f first
+            try:
+                result = run([
+                    "ffmpeg", "-y", "-i", temp_webm, "-ar", "16000", "-ac", "1", temp_wav
+                ], capture_output=True, check=True)
+                ffmpeg_success = True
+            except CalledProcessError as e:
+                ffmpeg_errors.append("default: " + e.stderr.decode())
+            # Try webm
+            if not ffmpeg_success:
+                try:
+                    result = run([
+                        "ffmpeg", "-y", "-f", "webm", "-i", temp_webm, "-ar", "16000", "-ac", "1", temp_wav
+                    ], capture_output=True, check=True)
+                    ffmpeg_success = True
+                except CalledProcessError as e:
+                    ffmpeg_errors.append("webm: " + e.stderr.decode())
+            # Try ogg
+            if not ffmpeg_success:
+                try:
+                    result = run([
+                        "ffmpeg", "-y", "-f", "ogg", "-i", temp_webm, "-ar", "16000", "-ac", "1", temp_wav
+                    ], capture_output=True, check=True)
+                    ffmpeg_success = True
+                except CalledProcessError as e:
+                    ffmpeg_errors.append("ogg: " + e.stderr.decode())
+            if not ffmpeg_success:
+                return JSONResponse(status_code=500, content={"error": f"ffmpeg conversion failed. Tried default, webm, and ogg. Errors: {ffmpeg_errors}"})
+        else:
+            with open(temp_wav, "wb") as f:
+                f.write(file_bytes)
         # Use default model path (adjust as needed)
         model_path = "mlx-community/whisper-large-v3-turbo"
-        output_path = temp_path + ".txt"
-        # Run STT
+        output_path = temp_wav + ".txt"
+        # Run STT without language argument (since not supported)
         from mlx_audio.stt.generate import generate as stt_generate
-        segments = stt_generate(model_path=model_path, audio_path=temp_path, output_path=output_path, format="txt", verbose=False)
+        segments = stt_generate(model_path=model_path, audio_path=temp_wav, output_path=output_path, format="txt", verbose=False)
         return {"text": getattr(segments, "text", "")}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
     finally:
         # Always clean up temp files
-        try:
-            # Remove the .wav file
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-            # Remove .wav.txt and .wav.txt.txt files
-            txt_path = temp_path + ".txt"
-            if os.path.exists(txt_path):
-                os.remove(txt_path)
-            txt_txt_path = txt_path + ".txt"
-            if os.path.exists(txt_txt_path):
-                os.remove(txt_txt_path)
-            # Remove any lingering temp_stt_*.wav* files (catch-all)
-            for f in os.listdir('.'):
-                if f.startswith('temp_stt_') and (f.endswith('.wav') or f.endswith('.wav.txt') or f.endswith('.wav.txt.txt')):
-                    try:
-                        os.remove(f)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+        for path in [temp_webm, temp_wav, temp_wav + ".txt", temp_wav + ".txt.txt"]:
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except Exception:
+                pass
+        # Remove any lingering temp_stt_* files (catch-all)
+        for f in os.listdir('.'):
+            if f.startswith('temp_stt_'):
+                try:
+                    os.remove(f)
+                except Exception:
+                    pass
 
 # Mount static files
 app.mount("/", StaticFiles(directory="frontend/build", html=True), name="static")
