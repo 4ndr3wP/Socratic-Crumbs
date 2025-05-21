@@ -42,16 +42,25 @@ function InputArea({
           const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
           const recorder = new window.MediaRecorder(stream, { mimeType });
           setMediaRecorder(recorder);
+          
           // Use a local variable for audio chunks
           let localAudioChunks = [];
+          
           recorder.ondataavailable = (e) => {
             console.log('ondataavailable called, data size:', e.data.size);
             if (e.data.size > 0) {
               localAudioChunks.push(e.data);
             }
           };
+          
           recorder.onstop = async () => {
             console.log('Recorder stopped. localAudioChunks:', localAudioChunks.length);
+            if (localAudioChunks.length === 0) {
+              console.error('No audio data captured');
+              setIsUploading(false);
+              return;
+            }
+            
             const audioBlob = new Blob(localAudioChunks, { type: mimeType });
             console.log('Audio Blob type:', audioBlob.type, 'size:', audioBlob.size);
             setIsUploading(true);
@@ -59,7 +68,7 @@ function InputArea({
               const formData = new FormData();
               formData.append('file', audioBlob, 'recording.webm'); // use .webm extension
               console.log('Uploading audio to STT server...');
-              const response = await fetch('http://localhost:8000/api/stt', {
+              const response = await fetch('/api/stt', {
                 method: 'POST',
                 body: formData,
               });

@@ -427,77 +427,123 @@ async def speech_to_text(file: UploadFile = File(...)):
     import shutil
     import mimetypes
     import uuid
+    import logging
+    
+    # Set up logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger("stt_endpoint")
+    
     temp_id = uuid.uuid4().hex
-    temp_webm = f"temp_stt_{temp_id}.webm"
+    input_file = f"temp_stt_{temp_id}.input"
     temp_wav = f"temp_stt_{temp_id}.wav"
+    
     try:
         # Save uploaded file to a temp location
         file_bytes = await file.read()
-        with open(temp_webm, "wb") as f:
+        file_size = len(file_bytes)
+        logger.info(f"Received audio file: {file.filename}, size: {file_size} bytes")
+        
+        with open(input_file, "wb") as f:
             f.write(file_bytes)
+            
         # Check for empty/corrupt files
-        if os.path.getsize(temp_webm) < 1000:
+        if file_size < 1000:
+            logger.warning(f"Audio file too small: {file_size} bytes")
             return JSONResponse(status_code=400, content={"error": "Uploaded audio file is empty or too small."})
-        # Check if file is actually webm or wav by inspecting the header
-        is_webm = file.filename.endswith('.webm') or (file_bytes[:4] == b'\x1A\x45\xDF\xA3')
-        if is_webm:
-            ffmpeg_success = False
-            ffmpeg_errors = []
-            # Try ffmpeg with no -f first
+
+        # Try to determine file type from filename extension or content
+        extension = file.filename.split('.')[-1].lower() if '.' in file.filename else ''
+        logger.info(f"File extension: {extension}")
+
+        # Convert to wav using ffmpeg with appropriate settings
+        ffmpeg_success = False
+        ffmpeg_errors = []
+        
+        # Different conversion strategies based on file extension
+        conversion_commands = []
+        
+        if extension in ['webm', 'ogg', 'opus']:
+            conversion_commands = [
+                # Try direct conversion first
+                ["ffmpeg", "-y", "-i", input_file, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", temp_wav],
+                # Try with explicit format specification
+                ["ffmpeg", "-y", "-f", extension, "-i", input_file, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", temp_wav],
+                # Try with higher volume
+                ["ffmpeg", "-y", "-i", input_file, "-ar", "16000", "-ac", "1", "-filter:a", "volume=1.5", "-c:a", "pcm_s16le", temp_wav]
+            ]
+        else:  # Try generic conversion for unknown formats
+            conversion_commands = [
+                ["ffmpeg", "-y", "-i", input_file, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", temp_wav],
+                ["ffmpeg", "-y", "-f", "webm", "-i", input_file, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", temp_wav],
+                ["ffmpeg", "-y", "-f", "ogg", "-i", input_file, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", temp_wav],
+                # Try with volume boost
+                ["ffmpeg", "-y", "-i", input_file, "-ar", "16000", "-ac", "1", "-filter:a", "volume=1.5", "-c:a", "pcm_s16le", temp_wav],
+            ]
+        
+        # Try conversion commands in sequence until one succeeds
+        for cmd in conversion_commands:
             try:
-                result = run([
-                    "ffmpeg", "-y", "-i", temp_webm, "-ar", "16000", "-ac", "1", temp_wav
-                ], capture_output=True, check=True)
+                logger.info(f"Running ffmpeg command: {' '.join(cmd)}")
+                result = run(cmd, capture_output=True, check=True)
                 ffmpeg_success = True
+                logger.info("ffmpeg conversion successful")
+                break
             except CalledProcessError as e:
-                ffmpeg_errors.append("default: " + e.stderr.decode())
-            # Try webm
-            if not ffmpeg_success:
-                try:
-                    result = run([
-                        "ffmpeg", "-y", "-f", "webm", "-i", temp_webm, "-ar", "16000", "-ac", "1", temp_wav
-                    ], capture_output=True, check=True)
-                    ffmpeg_success = True
-                except CalledProcessError as e:
-                    ffmpeg_errors.append("webm: " + e.stderr.decode())
-            # Try ogg
-            if not ffmpeg_success:
-                try:
-                    result = run([
-                        "ffmpeg", "-y", "-f", "ogg", "-i", temp_webm, "-ar", "16000", "-ac", "1", temp_wav
-                    ], capture_output=True, check=True)
-                    ffmpeg_success = True
-                except CalledProcessError as e:
-                    ffmpeg_errors.append("ogg: " + e.stderr.decode())
-            if not ffmpeg_success:
-                return JSONResponse(status_code=500, content={"error": f"ffmpeg conversion failed. Tried default, webm, and ogg. Errors: {ffmpeg_errors}"})
-        else:
-            with open(temp_wav, "wb") as f:
-                f.write(file_bytes)
-        # Use default model path (adjust as needed)
+                error_msg = e.stderr.decode() if e.stderr else str(e)
+                ffmpeg_errors.append(f"{cmd[3]}: {error_msg}")
+                logger.warning(f"ffmpeg conversion failed: {error_msg}")
+        
+        if not ffmpeg_success:
+            logger.error(f"All ffmpeg conversions failed: {ffmpeg_errors}")
+            return JSONResponse(status_code=500, content={"error": f"Audio conversion failed. Please try a different format or recording."})
+        
+        # Use smaller model for faster processing if accuracy is acceptable
+        # Use whisper-large-v3-turbo for higher accuracy but slower processing
         model_path = "mlx-community/whisper-large-v3-turbo"
+        
+        # Optional: Use a smaller model for faster processing (uncomment if preferred)
+        # model_path = "mlx-community/whisper-small-int4"
+        
         output_path = temp_wav + ".txt"
-        # Run STT without language argument (since not supported)
+        logger.info(f"Starting transcription with model: {model_path}")
+        
+        # Run transcription
         from mlx_audio.stt.generate import generate as stt_generate
-        segments = stt_generate(model_path=model_path, audio_path=temp_wav, output_path=output_path, format="txt", verbose=False)
-        return {"text": getattr(segments, "text", "")}
+        segments = stt_generate(
+            model_path=model_path, 
+            audio_path=temp_wav, 
+            output_path=output_path, 
+            format="txt", 
+            verbose=True
+        )
+        
+        # Get transcription text
+        transcription_text = getattr(segments, "text", "")
+        logger.info(f"Transcription complete. Text length: {len(transcription_text)}")
+        
+        # Clean up and return text
+        return {"text": transcription_text}
     except Exception as e:
+        logger.error(f"STT processing error: {str(e)}", exc_info=True)
         return JSONResponse(status_code=500, content={"error": str(e)})
     finally:
         # Always clean up temp files
-        for path in [temp_webm, temp_wav, temp_wav + ".txt", temp_wav + ".txt.txt"]:
+        for path in [input_file, temp_wav, temp_wav + ".txt", temp_wav + ".txt.txt"]:
             try:
                 if os.path.exists(path):
                     os.remove(path)
-            except Exception:
-                pass
+                    logger.info(f"Cleaned up: {path}")
+            except Exception as e:
+                logger.warning(f"Failed to clean up {path}: {str(e)}")
+                
         # Remove any lingering temp_stt_* files (catch-all)
         for f in os.listdir('.'):
             if f.startswith('temp_stt_'):
                 try:
                     os.remove(f)
-                except Exception:
-                    pass
+                    logger.info(f"Cleaned up lingering file: {f}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up lingering file {f}: {str(e)}")
 
 # Mount static files
 app.mount("/", StaticFiles(directory="frontend/build", html=True), name="static")
