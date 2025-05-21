@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'; // Removed useState
+import React, { useEffect, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 
 // Set up PDF.js worker
@@ -11,16 +11,79 @@ function InputArea({
   isOverallStreaming,
   handleSubmit,
   handleStopStreaming,
-  selectedImage, // New prop
-  setSelectedImage, // New prop
-  imagePreview, // New prop
-  setImagePreview, // New prop
+  selectedImage,
+  setSelectedImage,
+  imagePreview,
+  setImagePreview,
   isAudioPlaying,
   isTTSLoading
 }) {
-  const textareaRef = useRef(null); // Ref for the textarea
-  const fileInputRef = useRef(null); // Ref for the file input
+  const textareaRef = useRef(null);
+  const fileInputRef = useRef(null);
   const canvasRef = useRef(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const recognitionRef = useRef(null);
+  const [interimText, setInterimText] = useState('');
+
+  // Initialize Apple's Speech Recognition
+  useEffect(() => {
+    if ('webkitSpeechRecognition' in window) {
+      recognitionRef.current = new window.webkitSpeechRecognition();
+      recognitionRef.current.continuous = true;
+      recognitionRef.current.interimResults = true;
+      recognitionRef.current.lang = 'en-US';
+
+      recognitionRef.current.onresult = (event) => {
+        let finalTranscript = '';
+        let interimTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript;
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+
+        // Update the input with both final and interim results
+        if (finalTranscript) {
+          setUserInput(prev => prev ? prev + ' ' + finalTranscript : finalTranscript);
+          setInterimText('');
+        } else {
+          setInterimText(interimTranscript);
+        }
+      };
+
+      recognitionRef.current.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        setIsRecording(false);
+        setInterimText('');
+      };
+
+      recognitionRef.current.onend = () => {
+        setIsRecording(false);
+        setInterimText('');
+      };
+    }
+
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    };
+  }, [setUserInput]);
+
+  const handleMicClick = () => {
+    if (!recognitionRef.current) return;
+    
+    if (isRecording) {
+      recognitionRef.current.stop();
+    } else {
+      recognitionRef.current.start();
+      setIsRecording(true);
+    }
+  };
 
   const handleInputChange = (e) => {
     const textarea = e.target;
@@ -213,42 +276,86 @@ function InputArea({
           onChange={handleImageChange}
           disabled={isBusy}
         />
-        {/* Text box */}
-        <textarea
-          ref={textareaRef}
-          value={userInput}
-          onChange={handleInputChange}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              if ((userInput.trim() || selectedImage) && e.target.form) {
-                e.target.form.requestSubmit();
+        {/* Text box with mic button */}
+        <div style={{ position: 'relative', flex: 1 }}>
+          <textarea
+            ref={textareaRef}
+            value={userInput + (interimText ? ' ' + interimText : '')}
+            onChange={handleInputChange}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if ((userInput.trim() || selectedImage) && e.target.form) {
+                  e.target.form.requestSubmit();
+                }
               }
-            }
-          }}
-          placeholder="Type your message..."
-          disabled={isBusy}
-          rows={1}
-          style={{
-            resize: 'none',
-            width: '100%',
-            minHeight: '36px',
-            maxHeight: '120px',
-            padding: '8px 12px',
-            borderRadius: '8px',
-            border: '1px solid #e5e7eb',
-            backgroundColor: '#fff',
-            fontSize: '15px',
-            lineHeight: '1.5',
-            color: '#1f2937',
-            outline: 'none',
-            transition: 'border-color 0.2s',
-            opacity: isBusy ? 0.7 : 1,
-            cursor: isBusy ? 'not-allowed' : 'text',
-            marginRight: '8px',
-            flex: 1
-          }}
-        />
+            }}
+            placeholder="Type your message..."
+            disabled={isBusy}
+            rows={1}
+            style={{
+              resize: 'none',
+              width: '100%',
+              minHeight: '36px',
+              maxHeight: '120px',
+              padding: '8px 12px',
+              paddingRight: '40px', // Make room for mic button
+              borderRadius: '8px',
+              border: '1px solid #e5e7eb',
+              backgroundColor: '#fff',
+              fontSize: '15px',
+              lineHeight: '1.5',
+              color: '#1f2937',
+              outline: 'none',
+              transition: 'border-color 0.2s',
+              opacity: isBusy ? 0.7 : 1,
+              cursor: isBusy ? 'not-allowed' : 'text',
+              marginRight: '8px',
+            }}
+          />
+          <button
+            type="button"
+            onClick={handleMicClick}
+            disabled={isBusy}
+            style={{
+              position: 'absolute',
+              right: '12px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              background: 'none',
+              border: 'none',
+              padding: '4px',
+              cursor: isBusy ? 'not-allowed' : 'pointer',
+              opacity: isBusy ? 0.5 : 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 2,
+            }}
+            title={isRecording ? 'Stop recording' : 'Start recording'}
+          >
+            {isRecording && (
+              <div style={{
+                position: 'absolute',
+                top: '50%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)',
+                width: '32px',
+                height: '32px',
+                borderRadius: '50%',
+                backgroundColor: 'rgba(124, 58, 237, 0.1)',
+                animation: 'pulse 2s infinite',
+                zIndex: 0,
+              }} />
+            )}
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ position: 'relative', zIndex: 1 }}>
+              <path d="M12 1C11.2 1 10.44 1.32 9.88 1.88C9.32 2.44 9 3.2 9 4V12C9 12.8 9.32 13.56 9.88 14.12C10.44 14.68 11.2 15 12 15C12.8 15 13.56 14.68 14.12 14.12C14.68 13.56 15 12.8 15 12V4C15 3.2 14.68 2.44 14.12 1.88C13.56 1.32 12.8 1 12 1Z" stroke={isRecording ? '#7C3AED' : '#888'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M19 10V12C19 13.86 18.26 15.64 16.95 16.95C15.64 18.26 13.86 19 12 19C10.14 19 8.36 18.26 7.05 16.95C5.74 15.64 5 13.86 5 12V10" stroke={isRecording ? '#7C3AED' : '#888'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M12 19V23" stroke={isRecording ? '#7C3AED' : '#888'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M8 23H16" stroke={isRecording ? '#7C3AED' : '#888'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        </div>
         {/* Send/Stop button */}
         <button
           type="submit"
@@ -269,6 +376,15 @@ function InputArea({
           {isBusy ? 'Stop' : 'Send'}
         </button>
       </div>
+      <style>
+        {`
+          @keyframes pulse {
+            0% { transform: translate(-50%, -50%) scale(0.8); opacity: 0.8; }
+            50% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.4; }
+            100% { transform: translate(-50%, -50%) scale(0.8); opacity: 0.8; }
+          }
+        `}
+      </style>
     </form>
   );
 }
