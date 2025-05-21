@@ -26,6 +26,45 @@ function InputArea({
   const [audioChunks, setAudioChunks] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
 
+  const [audioLevel, setAudioLevel] = useState(0);
+  const audioAnalyserRef = useRef(null);
+  const animationFrameRef = useRef(null);
+
+  // Function to analyze audio and update visual indicator
+  const analyzeAudio = (stream) => {
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const analyser = audioContext.createAnalyser();
+    const microphone = audioContext.createMediaStreamSource(stream);
+    microphone.connect(analyser);
+    analyser.fftSize = 256;
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    
+    audioAnalyserRef.current = {
+      analyser,
+      dataArray,
+      audioContext
+    };
+    
+    const updateAudioLevel = () => {
+      if (!audioAnalyserRef.current) return;
+      
+      analyser.getByteFrequencyData(dataArray);
+      let sum = 0;
+      for (let i = 0; i < bufferLength; i++) {
+        sum += dataArray[i];
+      }
+      const average = sum / bufferLength;
+      // Convert to a value between 0 and 1
+      const normalizedLevel = Math.min(1, average / 128);
+      setAudioLevel(normalizedLevel);
+      
+      animationFrameRef.current = requestAnimationFrame(updateAudioLevel);
+    };
+    
+    updateAudioLevel();
+  };
+
   const handleMicClick = async () => {
     console.log('Mic button clicked. isRecording:', isRecording);
     if (isRecording) {
@@ -34,11 +73,26 @@ function InputArea({
         mediaRecorder.stop();
       }
       setIsRecording(false);
+      
+      // Stop audio analysis
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      if (audioAnalyserRef.current && audioAnalyserRef.current.audioContext) {
+        audioAnalyserRef.current.audioContext.close();
+        audioAnalyserRef.current = null;
+      }
+      setAudioLevel(0);
     } else {
       if (navigator.mediaDevices && window.MediaRecorder) {
         try {
           console.log('Requesting audio stream...');
           const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          
+          // Start audio analysis for visualization
+          analyzeAudio(stream);
+          
           const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
           const recorder = new window.MediaRecorder(stream, { mimeType });
           setMediaRecorder(recorder);
@@ -325,56 +379,89 @@ function InputArea({
               cursor: isBusy ? 'not-allowed' : 'text',
               marginRight: '8px',
             }}
-          />
-          <button
-            type="button"
-            onClick={handleMicClick}
-            disabled={isBusy || isUploading}
-            style={{
-              position: 'absolute',
-              right: '12px',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              background: 'none',
-              border: 'none',
-              padding: '4px',
-              cursor: isBusy || isUploading ? 'not-allowed' : 'pointer',
-              opacity: isBusy || isUploading ? 0.5 : 1,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 2,
-            }}
-            title={isRecording ? 'Stop recording' : (isUploading ? 'Transcribing...' : 'Start recording')}
-          >
-            {isRecording && (
-              <div style={{
+          />            <button
+              type="button"
+              onClick={handleMicClick}
+              disabled={isBusy || isUploading}
+              style={{
                 position: 'absolute',
+                right: '12px',
                 top: '50%',
-                left: '50%',
-                transform: 'translate(-50%, -50%)',
-                width: '32px',
-                height: '32px',
-                borderRadius: '50%',
-                backgroundColor: 'rgba(124, 58, 237, 0.1)',
-                animation: 'pulse 2s infinite',
-                zIndex: 0,
-              }} />
-            )}
-            {isUploading ? (
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ position: 'relative', zIndex: 1 }}>
-                <circle cx="12" cy="12" r="10" stroke="#7C3AED" strokeWidth="3" fill="none" strokeDasharray="60" strokeDashoffset="30">
-                  <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite" />
-                </circle>
-              </svg>
-            ) : (
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ position: 'relative', zIndex: 1 }}>
-                <path d="M12 1C11.2 1 10.44 1.32 9.88 1.88C9.32 2.44 9 3.2 9 4V12C9 12.8 9.32 13.56 9.88 14.12C10.44 14.68 11.2 15 12 15C12.8 15 13.56 14.68 14.12 14.12C14.68 13.56 15 12.8 15 12V4C15 3.2 14.68 2.44 14.12 1.88C13.56 1.32 12.8 1 12 1Z" stroke={isRecording ? '#7C3AED' : '#888'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M19 10V12C19 13.86 18.26 15.64 16.95 16.95C15.64 18.26 13.86 19 12 19C10.14 19 8.36 18.26 7.05 16.95C5.74 15.64 5 13.86 5 12V10" stroke={isRecording ? '#7C3AED' : '#888'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M12 19V23" stroke={isRecording ? '#7C3AED' : '#888'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M8 23H16" stroke={isRecording ? '#7C3AED' : '#888'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            )}
+                transform: 'translateY(-50%)',
+                background: 'none',
+                border: 'none',
+                padding: '4px',
+                cursor: isBusy || isUploading ? 'not-allowed' : 'pointer',
+                opacity: isBusy || isUploading ? 0.5 : 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 2,
+              }}
+              title={isRecording ? 'Stop recording' : (isUploading ? 'Transcribing...' : 'Start recording')}
+            >
+              {isRecording && (
+                <>
+                  {/* Background pulse animation */}
+                  <div style={{
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '50%',
+                    backgroundColor: 'rgba(124, 58, 237, 0.1)',
+                    animation: 'pulse 2s infinite',
+                    zIndex: 0,
+                  }} />
+                  
+                  {/* Audio level visualizer rings */}
+                  <div style={{
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    width: `${24 + audioLevel * 16}px`,
+                    height: `${24 + audioLevel * 16}px`, 
+                    borderRadius: '50%',
+                    border: `2px solid rgba(124, 58, 237, ${0.3 + audioLevel * 0.7})`,
+                    transition: 'all 0.1s ease',
+                    zIndex: 0,
+                  }} />
+                  
+                  {/* Text indicator - optional */}
+                  <div style={{
+                    position: 'absolute',
+                    top: '-20px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    fontSize: '12px',
+                    color: '#7C3AED',
+                    fontWeight: 'bold',
+                    whiteSpace: 'nowrap',
+                    textShadow: '0 0 4px white, 0 0 4px white, 0 0 4px white, 0 0 4px white',
+                    animation: 'fadeInOut 2s infinite',
+                    zIndex: 3,
+                  }}>
+                    Recording...
+                  </div>
+                </>
+              )}
+              {isUploading ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ position: 'relative', zIndex: 1 }}>
+                  <circle cx="12" cy="12" r="10" stroke="#7C3AED" strokeWidth="3" fill="none" strokeDasharray="60" strokeDashoffset="30">
+                    <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite" />
+                  </circle>
+                </svg>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ position: 'relative', zIndex: 1 }}>
+                  <path d="M12 1C11.2 1 10.44 1.32 9.88 1.88C9.32 2.44 9 3.2 9 4V12C9 12.8 9.32 13.56 9.88 14.12C10.44 14.68 11.2 15 12 15C12.8 15 13.56 14.68 14.12 14.12C14.68 13.56 15 12.8 15 12V4C15 3.2 14.68 2.44 14.12 1.88C13.56 1.32 12.8 1 12 1Z" stroke={isRecording ? '#7C3AED' : '#888'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M19 10V12C19 13.86 18.26 15.64 16.95 16.95C15.64 18.26 13.86 19 12 19C10.14 19 8.36 18.26 7.05 16.95C5.74 15.64 5 13.86 5 12V10" stroke={isRecording ? '#7C3AED' : '#888'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M12 19V23" stroke={isRecording ? '#7C3AED' : '#888'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M8 23H16" stroke={isRecording ? '#7C3AED' : '#888'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              )}
           </button>
         </div>
         {/* Send/Stop button */}
@@ -403,6 +490,23 @@ function InputArea({
             0% { transform: translate(-50%, -50%) scale(0.8); opacity: 0.8; }
             50% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.4; }
             100% { transform: translate(-50%, -50%) scale(0.8); opacity: 0.8; }
+          }
+          
+          @keyframes fadeInOut {
+            0% { opacity: 0.6; }
+            50% { opacity: 1; }
+            100% { opacity: 0.6; }
+          }
+          
+          .recording-wave {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            z-index: 0;
           }
         `}
       </style>
