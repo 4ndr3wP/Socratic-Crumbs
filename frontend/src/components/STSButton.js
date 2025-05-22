@@ -1,95 +1,82 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
-const STSButton = ({ selectedModel, selectedVoice }) => {
+const MIC_ICON = (
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ marginRight: 8 }}>
+    <rect width="20" height="20" fill="none"/>
+    <path d="M10 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Zm5-3a1 1 0 1 0-2 0 3 3 0 0 1-6 0 1 1 0 1 0-2 0 5 5 0 0 0 4 4.9V18a1 1 0 1 0 2 0v-2.1A5 5 0 0 0 15 11Z" fill="currentColor"/>
+  </svg>
+);
+
+const STSButton = ({ selectedModel, selectedVoice, onSTSActiveChange, onStatusChange, onMessagesChange, isActive }) => {
   const [isSTSActive, setIsSTSActive] = useState(false);
   const [status, setStatus] = useState('idle');
   const [websocket, setWebsocket] = useState(null);
   const [sessionId, setSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
 
+  // Sync with external isActive prop
+  useEffect(() => {
+    setIsSTSActive(isActive);
+  }, [isActive]);
+
+  // Notify parent of state changes
+  useEffect(() => {
+    if (onSTSActiveChange) onSTSActiveChange(isSTSActive);
+  }, [isSTSActive, onSTSActiveChange]);
+  useEffect(() => {
+    if (onStatusChange) onStatusChange(status);
+  }, [status, onStatusChange]);
+  useEffect(() => {
+    if (onMessagesChange) onMessagesChange(messages);
+  }, [messages, onMessagesChange]);
+
   // Create a WebSocket connection when the STS is activated
   const startSTS = useCallback(() => {
     if (isSTSActive) return;
-    
-    // Generate a unique session ID
     const newSessionId = Math.random().toString(36).substring(2, 15);
     setSessionId(newSessionId);
-    
-    // Create WebSocket connection with the selected model and voice
     const wsUrl = `ws://${window.location.host}/api/sts/${newSessionId}?model=${encodeURIComponent(selectedModel)}&voice=${encodeURIComponent(selectedVoice)}`;
     const ws = new WebSocket(wsUrl);
-    
     ws.onopen = () => {
-      console.log('STS WebSocket connection established');
       setStatus('connecting');
       setMessages([{ type: 'system', text: 'STS session starting...' }]);
     };
-    
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        console.log('STS message received:', data);
-        
-        // Update status based on the message
         setStatus(data.status || 'unknown');
-        
-        // Add message to the log
-        setMessages(prev => [...prev, { 
-          type: data.status === 'error' ? 'error' : 'info', 
-          text: data.message 
-        }]);
-        
-        // Handle specific status messages
-        if (data.status === 'ready') {
-          setIsSTSActive(true);
-        }
+        setMessages(prev => [...prev, { type: data.status === 'error' ? 'error' : 'info', text: data.message }]);
+        if (data.status === 'ready') setIsSTSActive(true);
       } catch (error) {
-        console.error('Error parsing STS message:', error);
+        // ignore
       }
     };
-    
-    ws.onerror = (error) => {
-      console.error('STS WebSocket error:', error);
+    ws.onerror = () => {
       setStatus('error');
-      setMessages(prev => [...prev, { 
-        type: 'error', 
-        text: 'Connection error. Please try again.' 
-      }]);
+      setMessages(prev => [...prev, { type: 'error', text: 'Connection error. Please try again.' }]);
     };
-    
     ws.onclose = () => {
-      console.log('STS WebSocket connection closed');
       setStatus('idle');
       setIsSTSActive(false);
-      setMessages(prev => [...prev, { 
-        type: 'system', 
-        text: 'STS session ended' 
-      }]);
+      setMessages(prev => [...prev, { type: 'system', text: 'STS session ended' }]);
     };
-    
     setWebsocket(ws);
-  }, [isSTSActive]);
-  
+  }, [isSTSActive, selectedModel, selectedVoice]);
+
   // Stop the STS session
   const stopSTS = useCallback(() => {
     if (!websocket) return;
-    
     try {
-      // Send stop command
       websocket.send('stop');
-      
-      // Close the connection
       websocket.close();
-    } catch (error) {
-      console.error('Error stopping STS:', error);
-    }
-    
+    } catch (error) {}
     setWebsocket(null);
     setIsSTSActive(false);
     setStatus('idle');
-  }, [websocket]);
-  
-  // Handle button click
+    if (onSTSActiveChange) onSTSActiveChange(false);
+  }, [websocket, onSTSActiveChange]);
+
+  // Start or stop STS
   const handleSTSToggle = () => {
     if (isSTSActive) {
       stopSTS();
@@ -97,148 +84,42 @@ const STSButton = ({ selectedModel, selectedVoice }) => {
       startSTS();
     }
   };
-  
-  // Clean up on unmount
+
   useEffect(() => {
-    return () => {
-      if (websocket) {
-        websocket.close();
-      }
-    };
+    return () => { if (websocket) websocket.close(); };
   }, [websocket]);
-  
-  // Status indicator color
-  const getStatusColor = () => {
-    switch (status) {
-      case 'listening':
-      case 'speech_detected':
-        return '#38bdf8'; // Blue for listening
-      case 'processing':
-      case 'transcribed':
-      case 'generating':
-        return '#a855f7'; // Purple for processing
-      case 'speaking':
-        return '#22c55e'; // Green for speaking
-      case 'error':
-        return '#ef4444'; // Red for error
-      case 'ready':
-        return '#22c55e'; // Green for ready
-      default:
-        return '#9ca3af'; // Gray for idle/connecting
-    }
-  };
-  
-  // Get button text based on status
-  const getButtonText = () => {
-    if (!isSTSActive) return 'Start Voice Chat';
-    
-    switch (status) {
-      case 'listening':
-        return 'Listening...';
-      case 'speech_detected':
-        return 'Hearing you...';
-      case 'processing':
-        return 'Processing...';
-      case 'generating':
-        return 'Thinking...';
-      case 'speaking':
-        return 'Speaking...';
-      default:
-        return 'Stop Voice Chat';
-    }
-  };
-  
+
+  // Button color: always purple when active, grey when inactive
+  const buttonColor = isSTSActive ? '#7c3aed' : '#e5e7eb';
+  const buttonTextColor = isSTSActive ? 'white' : '#333';
+
   return (
     <div className="sts-container">
       <button
-        className={`sts-button ${isSTSActive ? 'active' : ''}`}
+        className={`sts-button${isSTSActive ? ' active' : ''}`}
         onClick={handleSTSToggle}
+        type="button"
         style={{
-          backgroundColor: isSTSActive ? getStatusColor() : '#f3f4f6',
-          color: isSTSActive ? 'white' : '#4b5563',
+          backgroundColor: buttonColor,
+          color: buttonTextColor,
           border: 'none',
-          borderRadius: '8px',
-          padding: '10px 16px',
-          fontSize: '14px',
+          borderRadius: '18px',
+          height: '36px',
+          padding: '0 24px',
+          fontSize: '15px',
           fontWeight: 'bold',
           cursor: 'pointer',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           transition: 'all 0.2s ease',
-          boxShadow: isSTSActive ? '0 2px 5px rgba(0,0,0,0.2)' : 'none',
           marginBottom: '10px',
-          width: '100%'
+          minWidth: 0,
+          width: 'auto',
         }}
       >
-        {isSTSActive && (
-          <span 
-            className="pulse-indicator"
-            style={{
-              display: 'inline-block',
-              width: '10px',
-              height: '10px',
-              borderRadius: '50%',
-              backgroundColor: 'white',
-              marginRight: '8px',
-              animation: isSTSActive ? 'pulse 1.5s infinite' : 'none'
-            }}
-          />
-        )}
-        {getButtonText()}
+        Voice Chat
       </button>
-      
-      {/* Status messages - only show when active */}
-      {isSTSActive && messages.length > 0 && (
-        <div 
-          className="sts-messages"
-          style={{
-            maxHeight: '100px',
-            overflowY: 'auto',
-            fontSize: '12px',
-            marginTop: '5px',
-            padding: '5px',
-            borderRadius: '4px',
-            backgroundColor: '#f9fafb',
-            border: '1px solid #e5e7eb'
-          }}
-        >
-          {messages.slice(-3).map((msg, idx) => (
-            <div 
-              key={idx} 
-              style={{
-                color: msg.type === 'error' ? '#ef4444' : 
-                      msg.type === 'system' ? '#9ca3af' : '#4b5563',
-                marginBottom: '2px'
-              }}
-            >
-              {msg.text}
-            </div>
-          ))}
-        </div>
-      )}
-      
-      {/* CSS for the pulse animation */}
-      <style>
-        {`
-          @keyframes pulse {
-            0% {
-              transform: scale(0.95);
-              box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7);
-            }
-            
-            70% {
-              transform: scale(1);
-              box-shadow: 0 0 0 5px rgba(255, 255, 255, 0);
-            }
-            
-            100% {
-              transform: scale(0.95);
-              box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
-            }
-          }
-        `}
-      </style>
     </div>
   );
 };

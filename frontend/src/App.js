@@ -12,6 +12,7 @@ import TTSButton from './components/TTSButton';
 import VoiceSelector from './components/VoiceSelector';
 import MicButton from './components/MicButton';
 import STSButton from './components/STSButton'; // Import the new STS Button component
+import STSVisualizer from './components/STSVisualizer';
 
 // Import custom hooks to manage specific functionalities
 import { useChatLogic } from './hooks/useChatLogic'; // Manages chat message state and API interactions
@@ -34,6 +35,18 @@ function App() {
   const isProcessing = useRef(false);
   const [abortController, setAbortController] = useState(null);
   const [isTTSLoading, setIsTTSLoading] = useState(false);
+  // STS mode state
+  const [stsActive, setStsActive] = useState(false);
+  const [stsStatus, setStsStatus] = useState('idle');
+  const [stsMessages, setStsMessages] = useState([]);
+  const [assistantAudioData, setAssistantAudioData] = useState([]);
+  const [userAudioData, setUserAudioData] = useState([]);
+  const [userTranscript, setUserTranscript] = useState('');
+  const [assistantTranscript, setAssistantTranscript] = useState('');
+  const [assistantAudioSourceRef, setAssistantAudioSourceRef] = useState(null);
+  const [assistantAudioContext, setAssistantAudioContext] = useState(null);
+  const [assistantAudioBuffer, setAssistantAudioBuffer] = useState(null);
+  const audioFileInputRef = useRef(null);
 
   // --- Custom Hook Integrations ---
   // Manage AI model data (list of models, selected model, and setter)
@@ -187,6 +200,101 @@ function App() {
     }
   }, [messages, isTTSEnalbed, ttsEnabledTimestamp, currentText, isOverallStreaming, selectedVoice]);
 
+  // Extract transcription from last STS message
+  useEffect(() => {
+    if (stsMessages && stsMessages.length > 0) {
+      const last = stsMessages[stsMessages.length - 1];
+      if (last.type !== 'error' && last.text && last.text.toLowerCase().startsWith('transcribed:')) {
+        setUserTranscript(last.text.replace(/^transcribed:/i, '').trim());
+      }
+    }
+  }, [stsMessages]);
+
+  // Real-time user microphone waveform for STS mode
+  useEffect(() => {
+    let audioContext, analyser, dataArray, source, rafId, stream;
+    if (stsActive) {
+      navigator.mediaDevices.getUserMedia({ audio: true }).then(s => {
+        stream = s;
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioContext.createAnalyser();
+        source = audioContext.createMediaStreamSource(stream);
+        source.connect(analyser);
+        analyser.fftSize = 128;
+        dataArray = new Float32Array(analyser.fftSize);
+        const update = () => {
+          analyser.getFloatTimeDomainData(dataArray);
+          setUserAudioData(Array.from(dataArray));
+          rafId = requestAnimationFrame(update);
+        };
+        update();
+      });
+    }
+    return () => {
+      if (audioContext) audioContext.close();
+      if (rafId) cancelAnimationFrame(rafId);
+      if (stream) stream.getTracks().forEach(track => track.stop());
+      setUserAudioData([]);
+    };
+  }, [stsActive]);
+
+  // Real-time assistant waveform visualization for TTS playback
+  useEffect(() => {
+    let audioContext, analyser, rafId, source;
+    if (stsActive && assistantAudioBuffer) {
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      setAssistantAudioContext(audioContext);
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 128;
+      source = audioContext.createBufferSource();
+      source.buffer = assistantAudioBuffer;
+      source.connect(analyser);
+      analyser.connect(audioContext.destination);
+      const dataArray = new Float32Array(analyser.fftSize);
+      const update = () => {
+        analyser.getFloatTimeDomainData(dataArray);
+        setAssistantAudioData(Array.from(dataArray));
+        rafId = requestAnimationFrame(update);
+      };
+      source.onended = () => {
+        setAssistantAudioData([]);
+        if (audioContext) audioContext.close();
+      };
+      source.start();
+      update();
+    }
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      setAssistantAudioData([]);
+      if (audioContext) audioContext.close();
+    };
+  }, [stsActive, assistantAudioBuffer]);
+
+  // Track last user and assistant utterances for split text
+  useEffect(() => {
+    if (stsMessages && stsMessages.length > 0) {
+      const last = stsMessages[stsMessages.length - 1];
+      if (last.type !== 'error' && last.text) {
+        if (last.text.toLowerCase().startsWith('transcribed:')) {
+          setUserTranscript(last.text.replace(/^transcribed:/i, '').trim());
+        }
+        if (last.text.toLowerCase().startsWith('response:')) {
+          setAssistantTranscript(last.text.replace(/^response:/i, '').trim());
+        }
+      }
+    }
+  }, [stsMessages]);
+
+  // Set app and body background to black when STS is active
+  useEffect(() => {
+    if (stsActive) {
+      document.body.style.background = 'black';
+    } else {
+      document.body.style.background = '';
+    }
+    return () => { document.body.style.background = ''; };
+  }, [stsActive]);
+
   // --- Event Handlers ---
   // Wrapper function for submitting the user's input
   // Prevents default form submission and calls the chat submission handler from useChatLogic
@@ -208,27 +316,56 @@ function App() {
     setIsTTSLoading(false);
   };
 
+  const handleAudioFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      // TODO: Implement audio file upload/processing logic here
+      // For now, just log the file
+      console.log('Audio file selected:', file);
+    }
+  };
+
   // --- JSX Rendering ---
   return (
-    <div className="App"> {/* Main application container */}
+    <div className="App" style={{ background: stsActive ? 'black' : '#fff' }}> {/* Main application container */}
       {/* Header section including the application title and model selector */}
       <div className="header">
-        <div className="header-content" style={{ flexDirection: 'column', display: 'flex', alignItems: 'center', width: '100%' }}>
-          <div className="header-top" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '16px', width: '100%' }}>
+        <div className="header-content">
+          <div className="header-top">
             <TTSButton 
               isStreaming={isOverallStreaming}
               currentText={currentText}
               onTTSToggle={handleTTSToggle}
-              style={{ marginRight: '20px' }}
+              style={{ marginRight: '32px' }}
             />
-            <h2 style={{ margin: '0 20px', padding: 0, minWidth: 'max-content', fontSize: '2rem', fontWeight: 700, letterSpacing: '0.5px' }}>Socratic Crumbs</h2>
-            <MicButton
-              disabled={isOverallStreaming || isAudioPlaying || isTTSLoading}
-              onResult={text => setUserInput(prev => prev ? prev + ' ' + text : text)}
-            />
+            <h2 className="app-title">
+              Socratic Crumbs
+              <button
+                type="button"
+                onClick={() => audioFileInputRef.current && audioFileInputRef.current.click()}
+                className="upload-audio-btn"
+                style={{ marginLeft: '32px' }}
+                title="Upload audio file"
+                onMouseDown={e => e.currentTarget.style.color = '#7c3aed'}
+                onMouseUp={e => e.currentTarget.style.color = '#888'}
+                onMouseLeave={e => e.currentTarget.style.color = '#888'}
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 16V4M12 16L8 12M12 16L16 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <rect x="4" y="18" width="16" height="2" rx="1" fill="currentColor"/>
+                </svg>
+              </button>
+              <input
+                ref={audioFileInputRef}
+                type="file"
+                accept="audio/*"
+                style={{ display: 'none' }}
+                onChange={handleAudioFileUpload}
+              />
+            </h2>
           </div>
-          <div className="header-bottom" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginTop: '8px' }}>
-            <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-start' }}>
+          <div className="header-bottom">
+            <div className="header-col left">
               <VoiceSelector
                 voices={voices}
                 selectedVoice={selectedVoice}
@@ -236,13 +373,17 @@ function App() {
                 isStreaming={isOverallStreaming}
               />
             </div>
-            <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+            <div className="header-col center">
               <STSButton 
                 selectedModel={selectedModel} 
                 selectedVoice={selectedVoice} 
+                onSTSActiveChange={setStsActive}
+                onStatusChange={setStsStatus}
+                onMessagesChange={setStsMessages}
+                isActive={stsActive}
               />
             </div>
-            <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
+            <div className="header-col right">
               <ModelSelector
                 models={models}
                 selectedModel={selectedModel}
@@ -254,42 +395,72 @@ function App() {
         </div>
       </div>
 
-      {/* Chat messages container, ref is managed by useChatScroll */}
-      <div className="chat-container" ref={chatContainerRef}>
-        {/* Map through messages and render a MessageBubble for each */}
-        {messages.map((msg) => (
-          <MessageBubble
-            key={msg.id} // Unique key for each message
-            msg={msg} // The message object itself
-            onToggleThinking={handleToggleThinking} // Pass the toggle thinking handler
-            AssistantBubbleComponent={AssistantBubble} // Pass the component to render assistant messages
-          />
-        ))}
-        {/* Display a scroll-to-bottom button if the user has scrolled up */}
-        {isUserScrolled && (
-          <button
-            className="scroll-to-bottom"
-            onClick={handleScrollToBottom} // Scroll to bottom when clicked
-          >
-            ↓
-          </button>
+      {/* Main area: show STSVisualizer if STS is active, else normal chat UI */}
+      <div style={{ height: 400, margin: '40px 0', background: stsActive ? 'black' : 'transparent' }}>
+        {stsActive ? (
+          <>
+            <STSVisualizer
+              assistantAudioData={assistantAudioData}
+              userAudioData={userAudioData}
+              assistantTranscript={assistantTranscript}
+              userTranscript={userTranscript}
+            />
+            <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, width: '100%' }}>
+              <InputArea
+                userInput={userInput}
+                setUserInput={() => {}}
+                isOverallStreaming={true}
+                handleSubmit={() => {}}
+                handleStopStreaming={() => setStsActive(false)}
+                selectedImage={null}
+                setSelectedImage={() => {}}
+                imagePreview={null}
+                setImagePreview={() => {}}
+                isAudioPlaying={true}
+                isTTSLoading={true}
+                disabled={true}
+                stopButtonColor="#ef4444"
+              />
+            </div>
+          </>
+        ) : (
+          <div className="chat-container" ref={chatContainerRef}>
+            {messages.map((msg) => (
+              <MessageBubble
+                key={msg.id}
+                msg={msg}
+                onToggleThinking={handleToggleThinking}
+                AssistantBubbleComponent={AssistantBubble}
+              />
+            ))}
+            {isUserScrolled && (
+              <button
+                className="scroll-to-bottom"
+                onClick={handleScrollToBottom}
+              >
+                ↓
+              </button>
+            )}
+          </div>
         )}
       </div>
 
       {/* Input area for the user to type messages */}
-      <InputArea
-        userInput={userInput}
-        setUserInput={setUserInput}
-        isOverallStreaming={isOverallStreaming || isAudioPlaying || isTTSLoading}
-        handleSubmit={handleSubmitWrapper}
-        handleStopStreaming={handleStopAll}
-        selectedImage={selectedImage}
-        setSelectedImage={setSelectedImage}
-        imagePreview={imagePreview}
-        setImagePreview={setImagePreview}
-        isAudioPlaying={isAudioPlaying}
-        isTTSLoading={isTTSLoading}
-      />
+      {!stsActive && (
+        <InputArea
+          userInput={userInput}
+          setUserInput={setUserInput}
+          isOverallStreaming={isOverallStreaming || isAudioPlaying || isTTSLoading}
+          handleSubmit={handleSubmitWrapper}
+          handleStopStreaming={handleStopAll}
+          selectedImage={selectedImage}
+          setSelectedImage={setSelectedImage}
+          imagePreview={imagePreview}
+          setImagePreview={setImagePreview}
+          isAudioPlaying={isAudioPlaying}
+          isTTSLoading={isTTSLoading}
+        />
+      )}
     </div>
   );
 }

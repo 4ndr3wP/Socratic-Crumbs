@@ -30,81 +30,38 @@ body {
   align-items: center;
 }
 
-/* STS button styles */
-.sts-container {
-  margin-left: 10px;
-  width: 180px;
-}
-
-.sts-button {
-  transition: all 0.3s ease;
-  position: relative;
-  overflow: hidden;
-  border-radius: 8px;
-  padding: 10px 16px;
-  font-size: 14px;
-  font-weight: bold;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  border: none;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-}
-
-.sts-button:hover {
-  filter: brightness(1.1);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-}
-
-.sts-button.active {
-  animation: pulse 1.5s infinite;
-}
-
-.sts-messages {
-  max-height: 100px;
-  overflow-y: auto;
-  font-size: 12px;
-  margin-top: 5px;
-  padding: 5px;
-  border-radius: 4px;
-  background-color: #f9fafb;
-  border: 1px solid #e5e7eb;
-}
-
-@keyframes pulse {
-  0% {
-    transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(165, 105, 235, 0.7);
-  }
-  
-  70% {
-    transform: scale(1);
-    box-shadow: 0 0 0 8px rgba(165, 105, 235, 0);
-  }
-  
-  100% {
-    transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(165, 105, 235, 0);
-  }
-}
-
 .header-top {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 16px;
   width: 100%;
+  gap: 24px;
+  margin-bottom: 14px; /* Add a bit more space below the title bar */
 }
 
-.header h2 {
-  margin: 0;
+.app-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 0;
+  padding: 0;
+  min-width: max-content;
   font-size: 2rem;
-  color: #333;
   font-weight: 700;
   letter-spacing: 0.5px;
+  position: relative;
+}
+
+.upload-audio-btn {
+  background: none;
+  border: none;
+  margin-left: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 0;
+  color: #888;
+  transition: color 0.2s;
 }
 
 .header-bottom {
@@ -112,59 +69,69 @@ body {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  margin-top: 8px;
+  gap: 24px;
 }
 
-.voice-selector {
-  margin-right: 12px;
+.header-col {
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  min-width: 0;
 }
 
-.voice-selector select {
+.header-col.left {
+  justify-content: flex-start;
+}
+
+.header-col.center {
+  justify-content: center;
+}
+
+.header-col.right {
+  justify-content: flex-end;
+}
+
+/* STS button styles */
+.sts-container {
+  width: 100%;
+  margin: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.sts-button {
+  height: 36px;
   min-width: 120px;
-  padding: 6px 8px;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  background-color: #fff;
-  font-size: 14px;
+  max-width: 220px;
+  background-color: #e5e7eb;
   color: #333;
-}
-
-.model-selector select {
-  min-width: 120px;
-  padding: 6px 8px;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  background-color: #fff;
-  font-size: 14px;
-  color: #333;
-}
-
-.mic-button {
+  border-radius: 18px;
+  font-size: 15px;
+  font-weight: bold;
+  border: none;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  transition: all 0.2s;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #666;
-  margin-left: 0;
-  padding: 0;
-  transition: color 0.2s;
+  cursor: pointer;
+  padding: 0 24px;
 }
 
-.mic-button:hover {
-  color: #333;
+.sts-button.active {
+  background-color: #ef4444;
+  color: #fff;
 }
 
-.mic-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.sts-button:hover {
+  filter: brightness(1.05);
 }
 
-.mic-button.pressed svg {
-  stroke: #7C3AED !important;
-}
-
-.model-selector label {
-  margin-right: 5px;
-  font-size: 0.9rem;
+.voice-selector select, .model-selector select {
+  height: 36px;
+  min-width: 120px;
+  font-size: 15px;
+  padding: 6px 8px;
 }
 
 /* Chat messages container */
@@ -172,7 +139,7 @@ body {
   flex: 1;
   padding: 10px; /* Keeps original top/left/right padding */
   overflow-y: auto;
-  background-color: #efefef;
+  background-color: #fff;
   padding-bottom: 70px; /* Increased from 50px to provide more clearance */
 }
 /* Message bubbles */

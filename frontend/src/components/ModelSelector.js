@@ -9,9 +9,10 @@ function ModelSelector({ models, selectedModel, setSelectedModel, isOverallStrea
         onChange={(e) => setSelectedModel(e.target.value)}
         disabled={isOverallStreaming}
       >
-        {models.map(m => (
-          <option key={m} value={m}>{m}</option>
-        ))}
+        {models.map(m => {
+          const display = m.includes(":") ? m.split(":")[0] : m;
+          return <option key={m} value={m}>{display}</option>;
+        })}
       </select>
     </div>
   );

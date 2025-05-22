@@ -16,7 +16,8 @@ function InputArea({
   imagePreview,
   setImagePreview,
   isAudioPlaying,
-  isTTSLoading
+  isTTSLoading,
+  stopButtonColor
 }) {
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -267,6 +268,30 @@ function InputArea({
     buttonColor = 'white';
     buttonBorder = 'none';
   }
+  // If stopButtonColor is provided, use it for the Stop button
+  const stopButtonStyle = stopButtonColor ? {
+    backgroundColor: stopButtonColor,
+    color: 'white',
+    border: 'none',
+    borderRadius: '7px',
+    cursor: 'pointer',
+    fontSize: '15px',
+    fontWeight: 600,
+    transition: 'all 0.2s',
+    boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+    padding: '8px 22px',
+  } : {
+    backgroundColor: buttonBg,
+    color: buttonColor,
+    border: buttonBorder,
+    borderRadius: '7px',
+    cursor: isBusy ? 'pointer' : (!hasText ? 'not-allowed' : 'pointer'),
+    fontSize: '15px',
+    fontWeight: 600,
+    transition: 'all 0.2s',
+    boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+    padding: '8px 22px',
+  };
 
   return (
     <form onSubmit={onFormSubmit} className="input-area" style={{ width: '100%', padding: '16px', background: '#fff', borderTop: '1px solid #eee' }}>
@@ -468,18 +493,7 @@ function InputArea({
         <button
           type="submit"
           disabled={isBusy ? false : !hasText}
-          style={{
-            padding: '8px 22px',
-            backgroundColor: buttonBg,
-            color: buttonColor,
-            border: buttonBorder,
-            borderRadius: '7px',
-            cursor: isBusy ? 'pointer' : (!hasText ? 'not-allowed' : 'pointer'),
-            fontSize: '15px',
-            fontWeight: 600,
-            transition: 'all 0.2s',
-            boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
-          }}
+          style={stopButtonStyle}
         >
           {isBusy ? 'Stop' : 'Send'}
         </button>

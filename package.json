@@ -2,6 +2,7 @@
   "dependencies": {
     "katex": "^0.16.22",
     "pdfjs-dist": "^5.2.133",
+    "react-audio-visualizer": "^1.0.3",
     "react-syntax-highlighter": "^15.6.1",
     "rehype-katex": "^7.0.1",
     "remark-math": "^6.0.0"
