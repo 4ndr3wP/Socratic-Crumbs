@@ -30,6 +30,67 @@ body {
   align-items: center;
 }
 
+/* STS button styles */
+.sts-container {
+  margin-left: 10px;
+  width: 180px;
+}
+
+.sts-button {
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  border: none;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.sts-button:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.sts-button.active {
+  animation: pulse 1.5s infinite;
+}
+
+.sts-messages {
+  max-height: 100px;
+  overflow-y: auto;
+  font-size: 12px;
+  margin-top: 5px;
+  padding: 5px;
+  border-radius: 4px;
+  background-color: #f9fafb;
+  border: 1px solid #e5e7eb;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(165, 105, 235, 0.7);
+  }
+  
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 8px rgba(165, 105, 235, 0);
+  }
+  
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(165, 105, 235, 0);
+  }
+}
+
 .header-top {
   display: flex;
   align-items: center;

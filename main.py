@@ -29,6 +29,10 @@ from mlx_audio.tts.generate import generate_audio
 from mlx_audio.stt.generate import generate as stt_generate
 import unicodedata
 from subprocess import run, CalledProcessError
+# Import shared config
+from config import VOICE_SPEEDS
+# Import STS service
+from sts_service import handle_sts_session
 
 # Enable GPU acceleration for M4 Max
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
@@ -100,14 +104,6 @@ class Message(BaseModel):
 class ChatRequest(BaseModel):
     model: str
     messages: list[Message]
-
-# Voice speed configurations
-VOICE_SPEEDS = {
-    'im_nicola': 1.0,
-    'af_bella': 1.0,
-    'af_heart': 1.0,
-    'af_nicole': 1.3
-}
 
 class TTSRequest(BaseModel):
     text: str
@@ -545,5 +541,26 @@ async def speech_to_text(file: UploadFile = File(...)):
                 except Exception as e:
                     logger.warning(f"Failed to clean up lingering file {f}: {str(e)}")
 
-# Mount static files
+# WebSocket endpoint for Speech-to-Speech (STS)
+@app.websocket("/api/sts/{session_id}")
+async def sts_websocket(websocket: WebSocket, session_id: str):
+    """WebSocket endpoint for real-time Speech-to-Speech interaction.
+    
+    This creates a continuous voice assistant experience where:
+    1. The user speaks into their microphone
+    2. Speech is transcribed to text
+    3. Text is sent to an LLM for a response
+    4. Response is converted to speech and played back
+    
+    The entire flow happens continuously without requiring button presses.
+    """
+    # Get initial configuration from the query parameters
+    # The frontend will pass the currently selected model and voice
+    query_params = websocket.query_params
+    llm_model = query_params.get("model", "llama3")  # Default to llama3 if not specified
+    voice = query_params.get("voice", "af_heart")    # Default to af_heart if not specified
+    
+    await handle_sts_session(websocket, session_id, llm_model, voice)
+
+# Mount static files - this must be the LAST route
 app.mount("/", StaticFiles(directory="frontend/build", html=True), name="static")

@@ -11,6 +11,7 @@ import AssistantBubble from './components/AssistantBubble';
 import TTSButton from './components/TTSButton';
 import VoiceSelector from './components/VoiceSelector';
 import MicButton from './components/MicButton';
+import STSButton from './components/STSButton'; // Import the new STS Button component
 
 // Import custom hooks to manage specific functionalities
 import { useChatLogic } from './hooks/useChatLogic'; // Manages chat message state and API interactions
@@ -235,7 +236,12 @@ function App() {
                 isStreaming={isOverallStreaming}
               />
             </div>
-            <div style={{ flex: 1 }}></div>
+            <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+              <STSButton 
+                selectedModel={selectedModel} 
+                selectedVoice={selectedVoice} 
+              />
+            </div>
             <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
               <ModelSelector
                 models={models}
