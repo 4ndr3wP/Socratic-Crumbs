@@ -8,11 +8,16 @@ git clone the project repository and install the required dependencies.
 
 Open project folder in VS Code or your preferred IDE, and ensure you have the necessary Python environment set up. The service is designed to run as a WebSocket server, allowing real-time interaction with clients.
 
-In terminal, cd into the project directory
+In terminal, cd into the project directory.
 
-"cd frontend && npm run build"
+Then,
+```bash
+cd frontend && npm run build
+```
 
-"cd .. && uvicorn main:app --reload"
+```bash
+cd .. && uvicorn main:app --reload
+```
 
 ## Features
 - **Real-time voice input** using microphone (with device selection and VAD)
