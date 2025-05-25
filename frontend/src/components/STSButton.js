@@ -67,12 +67,17 @@ const STSButton = ({ selectedModel, selectedVoice, onSTSActiveChange, onStatusCh
   const stopSTS = useCallback(() => {
     if (!websocket) return;
     try {
+      // Send stop command and close immediately
       websocket.send('stop');
-      websocket.close();
-    } catch (error) {}
+      // Close the websocket immediately to ensure cleanup
+      websocket.close(1000, 'User stopped session');
+    } catch (error) {
+      console.warn('Error stopping STS session:', error);
+    }
     setWebsocket(null);
     setIsSTSActive(false);
     setStatus('idle');
+    setMessages(prev => [...prev, { type: 'system', text: 'Voice Chat stopped' }]);
     if (onSTSActiveChange) onSTSActiveChange(false);
   }, [websocket, onSTSActiveChange]);
 
@@ -86,7 +91,17 @@ const STSButton = ({ selectedModel, selectedVoice, onSTSActiveChange, onStatusCh
   };
 
   useEffect(() => {
-    return () => { if (websocket) websocket.close(); };
+    // Cleanup function to ensure session is stopped when component unmounts
+    return () => {
+      if (websocket && websocket.readyState === WebSocket.OPEN) {
+        try {
+          websocket.send('stop');
+          websocket.close(1000, 'Component unmounting');
+        } catch (error) {
+          console.warn('Error cleaning up STS session on unmount:', error);
+        }
+      }
+    };
   }, [websocket]);
 
   // Button color: always purple when active, grey when inactive

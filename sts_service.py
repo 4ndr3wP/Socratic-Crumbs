@@ -63,13 +63,13 @@ class STSSession:
             logger.warning(f"[{session_id}] Could not query default input device: {e}")
         logger.info(f"[{session_id}] Initializing STS session with model={llm_model}, voice={voice}")
         logger.info(f"[{session_id}] Configuration: silence_threshold={config.get('silence_threshold')}, silence_duration={config.get('silence_duration')}")
-        self.silence_threshold = config.get("silence_threshold", 0.03)
+        self.silence_threshold = config.get("silence_threshold", 0.015)  # Adjusted threshold to work with actual microphone levels
         self.silence_duration = config.get("silence_duration", 1.0)
         self.input_sample_rate = config.get("input_sample_rate", 16000)
         self.output_sample_rate = config.get("output_sample_rate", 24000)
         self.streaming_interval = config.get("streaming_interval", 3)
         self.frame_duration_ms = config.get("frame_duration_ms", 30)
-        self.vad_mode = config.get("vad_mode", 3)
+        self.vad_mode = config.get("vad_mode", 2)  # Less aggressive VAD mode
         
         # Use the provided models from the user selection
         self.stt_model = "mlx-community/whisper-large-v3-turbo"
@@ -100,19 +100,13 @@ class STSSession:
         # System is speaking flag and cooldown timer
         self.system_is_speaking = False
         self.speech_end_time = 0
-        self.speech_cooldown_period = 4.0  # Increased to 4 seconds cooldown after speech ends
-        self.extra_caution_needed = False  # Flag for suspicious speech timing
         
-        # Minimum speech requirements (to avoid processing very short utterances)
-        self.min_speech_frames = int(1.0 * 1000 / self.frame_duration_ms)  # Minimum 1.0 seconds of speech required
-        self.min_speech_energy = 0.06  # Increased minimum energy level for meaningful speech
+        # Minimum speech requirements - adjusted for better sensitivity
+        self.min_speech_frames = int(0.8 * 1000 / self.frame_duration_ms)  # Reduced to 0.8 seconds minimum
+        self.min_speech_energy = 0.010  # Lowered threshold to accommodate actual speech levels
         
-        # Common filler words and short responses that should be filtered out
-        self.filler_words = {
-            "um", "uh", "hmm", "ah", "er", "like", "so", "you know", "right", 
-            "okay", "ok", "yes", "no", "yeah", "nope", "sure", "thanks", 
-            "thank you", "got it", "i see", "i understand", "alright", "all right"
-        }
+        # Simple echo detection - only reject obvious echoes
+        self.echo_similarity_threshold = 0.8  # High threshold to only catch clear echoes
         
         # Models and clients
         self.stt = None
@@ -172,10 +166,37 @@ class STSSession:
             return
             
         self.is_active = False
-        logger.info(f"[{self.session_id}] Cancelling all tasks")
+        logger.info(f"[{self.session_id}] Stopping session...")
+        
+        # Cancel current TTS task immediately to stop audio generation
+        if self.current_tts_cancel:
+            self.current_tts_cancel.set()
+        if self.current_tts_task:
+            try:
+                self.current_tts_task.cancel()
+                await asyncio.sleep(0.1)  # Give task time to cancel
+            except Exception as e:
+                logger.debug(f"[{self.session_id}] Error cancelling TTS task: {e}")
+        
+        # Immediately flush audio player to stop all playback
+        if self.player:
+            try:
+                logger.info(f"[{self.session_id}] Flushing audio player to stop playback immediately")
+                self.player.flush()
+                logger.info(f"[{self.session_id}] Audio player flushed successfully")
+            except Exception as e:
+                logger.error(f"[{self.session_id}] Error flushing audio player: {str(e)}")
+        
+        # Clear output audio queue
+        while not self.output_audio_queue.empty():
+            try:
+                self.output_audio_queue.get_nowait()
+                self.output_audio_queue.task_done()
+            except asyncio.QueueEmpty:
+                break
         
         # Cancel all tasks
-        for task in self.tasks:
+        for task in getattr(self, 'tasks', []):
             try:
                 task.cancel()
                 logger.debug(f"[{self.session_id}] Task cancelled: {task.get_name()}")
@@ -191,35 +212,23 @@ class STSSession:
                 logger.info(f"[{self.session_id}] Audio input stream closed")
             except Exception as e:
                 logger.error(f"[{self.session_id}] Error closing audio stream: {str(e)}")
-            
-            # Stop audio player and clear queue
-            if self.player:
-                try:
-                    logger.info(f"[{self.session_id}] Stopping audio player")
-                    self.player.stop()
-                    # Clear any remaining audio in the queue
-                    while not self.output_audio_queue.empty():
-                        try:
-                            self.output_audio_queue.get_nowait()
-                            self.output_audio_queue.task_done()
-                        except asyncio.QueueEmpty:
-                            break
-                    logger.info(f"[{self.session_id}] Audio player stopped and queue cleared")
-                except Exception as e:
-                    logger.error(f"[{self.session_id}] Error stopping audio player: {str(e)}")
-            
+        
         # Clear conversation history
         self.conversation_history = []
         logger.info(f"[{self.session_id}] Conversation history cleared")
+        
+        # Reset speech state
+        self.system_is_speaking = False
             
         logger.info(f"[{self.session_id}] Session fully stopped")
         
         # Try to send final message if websocket is still open
         try:
-            await self.websocket.send_json({"status": "stopped", "message": "STS session ended"})
-            logger.info(f"[{self.session_id}] Stop confirmation sent to client")
+            if self.websocket.client_state.value == 1:  # WebSocket is still open
+                await self.websocket.send_json({"status": "stopped", "message": "STS session ended"})
+                logger.info(f"[{self.session_id}] Stop confirmation sent to client")
         except Exception as e:
-            logger.error(f"[{self.session_id}] Error sending stop confirmation: {str(e)}")
+            logger.debug(f"[{self.session_id}] WebSocket already closed: {e}")
     
     def _is_silent(self, audio_data):
         if isinstance(audio_data, bytes):
@@ -236,7 +245,7 @@ class STSSession:
     
     def _voice_activity_detection(self, frame):
         try:
-            # First check energy level with a much stricter threshold
+            # More robust VAD - combine energy check with VAD
             if isinstance(frame, bytes):
                 audio_np = np.frombuffer(frame, dtype=np.int16)
                 audio_np = audio_np.astype(np.float32) / 32768.0
@@ -246,46 +255,31 @@ class STSSession:
             # Calculate energy of the frame
             energy = np.linalg.norm(audio_np) / np.sqrt(audio_np.size)
             
-            # Check if we're in a suspicious timing window after system speech
-            current_time = time.time()
-            time_since_system_speech = current_time - self.speech_end_time
-            is_suspicious_timing = 0 < time_since_system_speech < 1.5
-            
-            # Adjust threshold based on timing - if it's suspiciously close to system speech, use a stricter threshold
-            energy_threshold = self.silence_threshold * (1.5 if is_suspicious_timing else 0.3)
-            
-            # First check: energy must be above threshold
-            if energy < energy_threshold:
-                logger.debug(f"Session {self.session_id} energy too low: {energy:.4f}, threshold: {energy_threshold:.4f}")
+            # First check: energy must be above silence threshold
+            if energy < self.silence_threshold:
+                logger.debug(f"Session {self.session_id} energy too low: {energy:.4f} < {self.silence_threshold}")
                 return False
                 
-            # Second check: use VAD for more accurate speech detection
-            is_speech = self.vad.is_speech(frame, self.input_sample_rate)
+            # Use VAD for speech detection, but be less strict about energy
+            try:
+                is_speech = self.vad.is_speech(frame, self.input_sample_rate)
+                logger.debug(f"Session {self.session_id} VAD result: energy={energy:.4f}, is_speech={is_speech}")
+                return is_speech
+            except ValueError as e:
+                logger.warning(f"Session {self.session_id} VAD error, using energy fallback: {str(e)}")
+                # If VAD fails, fall back to energy-based detection with a reasonable threshold
+                return energy > self.silence_threshold * 1.5
             
-            # Apply more stringent checks for suspicious timing
-            if is_suspicious_timing and is_speech:
-                # Check for short noise bursts that might be microphone artifacts
-                # Apply an extra high threshold during suspicious timing periods
-                if energy < self.silence_threshold * 2.0:
-                    logger.debug(f"Session {self.session_id} suspicious timing with moderate energy, treating as non-speech")
-                    return False
-            
-            if not is_speech:
-                logger.debug(f"Session {self.session_id} VAD result: non-speech, energy: {energy:.4f}")
-                
-            return is_speech
-        except ValueError as e:
-            logger.warning(f"Session {self.session_id} VAD error, falling back to energy detection: {str(e)}")
-            # Fall back to energy-based detection with much stricter threshold
-            return not self._is_silent(frame) and energy > self.silence_threshold * 0.8
+        except Exception as e:
+            logger.warning(f"Session {self.session_id} VAD error: {str(e)}")
+            return False
     
     def _sd_callback(self, indata, frames, _time, status):
         if not self.is_active:
             return
             
-        # Skip audio processing if system is speaking or in cooldown period
-        current_time = time.time()
-        if self.system_is_speaking or current_time < self.speech_end_time:
+        # Only skip if system is currently speaking, not during cooldown
+        if self.system_is_speaking:
             logger.debug(f"Session {self.session_id} skipping audio frame while system is speaking")
             return
             
@@ -301,33 +295,45 @@ class STSSession:
     
     async def _listener(self):
         frame_size = int(self.input_sample_rate * (self.frame_duration_ms / 1000.0))
-        # Log all available devices and the default input device
+        # Log all available devices and select the MacBook's built-in microphone
         try:
             logger.info(f"Session {self.session_id} available audio devices:")
             devices = sd.query_devices()
             for idx, dev in enumerate(devices):
                 logger.info(f"  Device {idx}: {dev['name']} (max input channels: {dev['max_input_channels']}, max output channels: {dev['max_output_channels']})")
-            # Select a physical microphone (not virtual/loopback/system)
-            physical_input_index = None
+            
+            # Prioritize MacBook's built-in microphone over external devices
+            builtin_input_index = None
+            fallback_input_index = None
+            
             for idx, dev in enumerate(devices):
                 name = dev['name'].lower()
-                if (
-                    dev['max_input_channels'] > 0 and
-                    not any(x in name for x in ["virtual", "loopback", "blackhole", "monitor", "output"])
-                ):
-                    physical_input_index = idx
-                    logger.info(f"Session {self.session_id} selected physical input device: {dev['name']} (index {idx})")
-                    break
-            if physical_input_index is None:
-                logger.warning(f"Session {self.session_id} could not find a physical input device, falling back to default.")
-                physical_input_index = sd.default.device[0]
+                if dev['max_input_channels'] > 0:
+                    # Look specifically for MacBook built-in microphone
+                    if any(x in name for x in ["built-in", "macbook", "internal"]):
+                        builtin_input_index = idx
+                        logger.info(f"Session {self.session_id} found MacBook built-in microphone: {dev['name']} (index {idx})")
+                        break
+                    # Avoid external devices like iPhone, AirPods, etc.
+                    elif not any(x in name for x in ["iphone", "airpods", "bluetooth", "virtual", "loopback", "blackhole", "monitor", "output", "speaker"]):
+                        if fallback_input_index is None:
+                            fallback_input_index = idx
+            
+            # Use built-in microphone if found, otherwise use fallback
+            selected_input_index = builtin_input_index if builtin_input_index is not None else fallback_input_index
+            
+            if selected_input_index is None:
+                logger.warning(f"Session {self.session_id} could not find a suitable input device, using default.")
+                selected_input_index = sd.default.device[0]
             else:
-                sd.default.device = (physical_input_index, sd.default.device[1])
-            input_device_info = sd.query_devices(physical_input_index)
-            logger.info(f"Session {self.session_id} using input device index: {physical_input_index}, name: {input_device_info['name']}")
+                # Set this as the default input device
+                sd.default.device = (selected_input_index, sd.default.device[1])
+            
+            input_device_info = sd.query_devices(selected_input_index)
+            logger.info(f"Session {self.session_id} using input device index: {selected_input_index}, name: {input_device_info['name']}")
         except Exception as e:
             logger.warning(f"Session {self.session_id} Could not query audio devices: {e}")
-            physical_input_index = None
+            selected_input_index = None
         
         try:
             self.stream = sd.InputStream(
@@ -336,7 +342,7 @@ class STSSession:
                 channels=1,
                 dtype="int16",
                 callback=self._sd_callback,
-                device=physical_input_index if physical_input_index is not None else None,
+                device=selected_input_index if selected_input_index is not None else None,
             )
             logger.info(f"Session {self.session_id} successfully created audio input stream")
             self.stream.start()
@@ -381,26 +387,32 @@ class STSSession:
                 is_speech = self._voice_activity_detection(frame)
                 logger.debug(f"Session {self.session_id} VAD result: {'speech' if is_speech else 'silence'}")
 
-                # If system just finished speaking, check for suspicious timing
-                current_time = time.time()
-                time_since_system_speech = current_time - self.speech_end_time
-                is_suspiciously_close_to_system_speech = 0 < time_since_system_speech < 1.0
-                
                 if is_speech:
                     if not self.speaking_detected:
-                        # Check if this speech started suspiciously soon after system speech
-                        if is_suspiciously_close_to_system_speech:
-                            logger.warning(f"Session {self.session_id} speech detected too soon after system speech ({time_since_system_speech:.2f}s), being cautious")
-                            # Don't immediately reject, but set a flag to be extra cautious during processing
-                            self.extra_caution_needed = True
-                        else:
-                            logger.info(f"Session {self.session_id} detected start of speech (time since system: {time_since_system_speech:.2f}s)")
-                        
+                        logger.info(f"Session {self.session_id} detected start of speech")
                         await self.websocket.send_json({"status": "speech_detected", "message": "Speech detected"})
+                        
+                        # Cancel the current TTS task and flush audio immediately when user starts speaking
+                        if hasattr(self, "current_tts_task") and self.current_tts_task:
+                            # Signal the generator loop to stop
+                            if self.current_tts_cancel:
+                                self.current_tts_cancel.set()
+
+                        # Clear the output audio queue and flush player immediately
+                        if self.player:
+                            self.loop.call_soon_threadsafe(self.player.flush)
+                            
+                        # Clear any queued audio
+                        while not self.output_audio_queue.empty():
+                            try:
+                                self.output_audio_queue.get_nowait()
+                                self.output_audio_queue.task_done()
+                            except asyncio.QueueEmpty:
+                                break
                         
                     self.speaking_detected = True
                     self.silent_frames = 0
-                    consecutive_silence_frames = 0  # Reset consecutive silence counter when speech is detected
+                    consecutive_silence_frames = 0
                     self.frames.append(frame)
                     last_speech_time = time.time()
                     logger.debug(f"Session {self.session_id} added speech frame, total frames: {len(self.frames)}")
@@ -455,28 +467,6 @@ class STSSession:
                 await self.websocket.send_json({"status": "warning", "message": "Speech too quiet, ignoring"})
                 return
             
-            # Calculate speech timing parameters - this helps detect natural speech vs echoes
-            # Speech echoes tend to start immediately after system speech, while user responses have a natural pause
-            speech_timing = time.time() - self.speech_end_time
-            logger.info(f"[{self.session_id}] Time since last system speech: {speech_timing:.2f}s")
-            
-            # If speech started very soon after system finished speaking, be more suspicious
-            is_suspiciously_fast_response = 0 < speech_timing < 1.5
-            
-            # Apply more strict thresholds if the extra caution flag is set
-            if self.extra_caution_needed:
-                logger.warning(f"[{self.session_id}] Using stricter thresholds due to suspicious timing")
-                # Apply more strict energy threshold for suspicious speech
-                if energy < self.min_speech_energy * 1.5:  # 50% higher threshold
-                    logger.warning(f"[{self.session_id}] Suspicious audio with low energy ({energy:.4f}), ignoring")
-                    await self.websocket.send_json({"status": "warning", "message": "Speech pattern suspicious, ignoring"})
-                    # Reset the flag
-                    self.extra_caution_needed = False
-                    return
-            
-            # Reset the caution flag for next time
-            self.extra_caution_needed = False
-            
             async with self.mlx_lock:
                 try:
                     audio_mx = mx.array(audio)
@@ -492,95 +482,57 @@ class STSSession:
                     text = result.text.strip()
                     logger.info(f"[{self.session_id}] Raw transcription: '{text}'")
                     
-                    # Normalize the text for better comparison
-                    def normalize_text(t):
-                        return ' '.join(t.lower().split())
-                    
-                    normalized_transcription = normalize_text(text)
-                    
-                    # Filter out common filler words
-                    if normalized_transcription.lower() in self.filler_words:
-                        logger.warning(f"[{self.session_id}] Filtering out filler word/phrase: '{normalized_transcription}'")
-                        await self.websocket.send_json({"status": "warning", "message": "Ignoring filler word"})
+                    # Basic validation - reject empty or very short transcriptions
+                    if not text or len(text.strip()) < 2:
+                        logger.warning(f"[{self.session_id}] Transcription too short or empty: '{text}'")
+                        await self.websocket.send_json({"status": "warning", "message": "No clear speech detected"})
                         return
                     
-                    # Get last assistant message and check for similarity
-                    last_llm_response = None
-                    for msg in reversed(self.conversation_history):
-                        if msg['role'] == 'assistant':
-                            last_llm_response = msg['content']
-                            break
+                    # Filter out common hallucinations that occur with noise
+                    common_hallucinations = {
+                        "thank you", "thanks", "you're welcome", "welcome", "bye", "goodbye", 
+                        "hello", "hi", "yeah", "yes", "no", "okay", "ok", "um", "uh"
+                    }
                     
-                    if last_llm_response:
-                        logger.info(f"[{self.session_id}] Last LLM response: '{last_llm_response}'")
-                        normalized_response = normalize_text(last_llm_response)
-                        
-                        # Extract words and analyze overlap
-                        transcription_words = set(normalized_transcription.split())
-                        response_words = set(normalized_response.split())
-                        common_words = transcription_words.intersection(response_words)
-                        
-                        # Calculate various similarity metrics
-                        word_count = len(transcription_words)
-                        common_word_count = len(common_words)
-                        similarity_ratio = common_word_count / word_count if word_count > 0 else 0
-                        
-                        # Log the similarity analysis
-                        logger.info(f"[{self.session_id}] Word count: {word_count}, Common words: {common_word_count}")
-                        logger.info(f"[{self.session_id}] Similarity ratio: {similarity_ratio:.2f}")
-                        logger.info(f"[{self.session_id}] Common words: {common_words}")
-                        
-                        # More sophisticated similarity detection - use different rules based on length
-                        if word_count <= 3:
-                            # For very short phrases (1-3 words), use stricter rules
-                            if word_count == 1:
-                                # Single-word transcriptions that match any word in the response
-                                if common_words or normalized_transcription in normalized_response:
-                                    logger.warning(f"[{self.session_id}] Ignoring single-word transcription: '{normalized_transcription}'")
-                                    await self.websocket.send_json({"status": "warning", "message": "Too short, ignoring"})
+                    text_lower = text.lower().strip()
+                    
+                    # If the transcription is a short common phrase and energy is low, it's likely a hallucination
+                    if text_lower in common_hallucinations and energy < 0.03:
+                        logger.warning(f"[{self.session_id}] Likely hallucination detected with low energy: '{text}' (energy: {energy:.4f})")
+                        await self.websocket.send_json({"status": "warning", "message": "Filtered out possible noise hallucination"})
+                        return
+                    
+                    # Reject if transcription is too repetitive (another sign of hallucination)
+                    words = text_lower.split()
+                    if len(words) > 1 and len(set(words)) == 1:  # All words are the same
+                        logger.warning(f"[{self.session_id}] Repetitive transcription detected: '{text}'")
+                        await self.websocket.send_json({"status": "warning", "message": "Repetitive speech ignored"})
+                        return
+                    
+                    # Simple echo detection - only check for very similar recent responses
+                    if self.conversation_history:
+                        last_response = self.conversation_history[-1].get('content', '') if self.conversation_history[-1].get('role') == 'assistant' else ''
+                        if last_response:
+                            # Simple similarity check - if transcription is very similar to last response, it might be echo
+                            response_lower = last_response.lower().strip()
+                            
+                            # Only reject if it's very similar (high threshold)
+                            if text_lower in response_lower or response_lower in text_lower:
+                                if len(text_lower) > 5 and len(text_lower) / len(response_lower) > self.echo_similarity_threshold:
+                                    logger.warning(f"[{self.session_id}] Possible echo detected, ignoring: '{text}'")
+                                    await self.websocket.send_json({"status": "warning", "message": "Echo detected, ignoring"})
                                     return
-                            elif word_count <= 3:
-                                # For 2-3 word transcriptions, if similarity is high or timing is suspicious, reject
-                                if similarity_ratio > 0.4 or (similarity_ratio > 0.2 and is_suspiciously_fast_response):
-                                    logger.warning(f"[{self.session_id}] Ignoring short transcription with high similarity: '{normalized_transcription}'")
-                                    logger.warning(f"[{self.session_id}] Similarity ratio: {similarity_ratio:.2f}, Suspicious timing: {is_suspiciously_fast_response}")
-                                    await self.websocket.send_json({"status": "warning", "message": "Ignoring possible feedback"})
-                                    return
-                                    
-                        else:
-                            # For longer phrases (4+ words)
-                            
-                            # Check if transcription contains a significant portion of the response
-                            # or if response contains the transcription
-                            contains_check = normalized_transcription in normalized_response or normalized_response in normalized_transcription
-                            
-                            # Check for substantial word overlap
-                            word_overlap_check = (
-                                similarity_ratio > 0.5 or 
-                                (similarity_ratio > 0.3 and common_word_count >= 3) or
-                                (is_suspiciously_fast_response and similarity_ratio > 0.2 and common_word_count >= 2)
-                            )
-                            
-                            if contains_check or word_overlap_check:
-                                logger.warning(f"[{self.session_id}] Ignoring transcription that matches last LLM response")
-                                logger.warning(f"[{self.session_id}] Transcription: '{normalized_transcription}'")
-                                logger.warning(f"[{self.session_id}] Last response: '{normalized_response}'")
-                                logger.warning(f"[{self.session_id}] Contains check: {contains_check}, Word overlap check: {word_overlap_check}")
-                                await self.websocket.send_json({"status": "warning", "message": "Ignoring system feedback"})
-                                return
+                    
+                    logger.info(f"[{self.session_id}] Valid transcription: '{text}'")
+                    await self.websocket.send_json({"status": "transcribed", "message": f"transcribed: {text}"})
+                    await self.transcription_queue.put(text)
+                    
                 except Exception as e:
-                    logger.error(f"[{self.session_id}] MLX processing error: {str(e)}", exc_info=True)
-                    raise
-
-            if text:
-                logger.info(f"[{self.session_id}] Transcription accepted and queued for response generation")
-                await self.websocket.send_json({"status": "transcribed", "message": f"Transcribed: {text}"})
-                await self.transcription_queue.put(text)
-            else:
-                logger.warning(f"[{self.session_id}] Empty transcription received")
-                await self.websocket.send_json({"status": "warning", "message": "No speech detected in audio"})
+                    logger.error(f"[{self.session_id}] Transcription error: {str(e)}", exc_info=True)
+                    await self.websocket.send_json({"status": "error", "message": f"Transcription failed: {str(e)}"})
+                    
         except Exception as e:
-            logger.error(f"[{self.session_id}] Error processing audio: {str(e)}", exc_info=True)
+            logger.error(f"[{self.session_id}] Audio processing error: {str(e)}", exc_info=True)
             await self.websocket.send_json({"status": "error", "message": f"Error processing audio: {str(e)}"})
     
     async def _response_processor(self):
@@ -748,19 +700,11 @@ class STSSession:
             await tts_thread
             logger.info(f"[{self.session_id}] TTS processing completed")
             
-            # Turn off speaking flag and set cooldown period
+            # Turn off speaking flag and set a simple cooldown
             self.system_is_speaking = False
+            self.speech_end_time = time.time()  # Just record when speech ended, no cooldown
             
-            # Calculate a dynamic cooldown based on response length
-            # Longer responses need longer cooldown periods
-            word_count = len(text.split())
-            dynamic_cooldown = min(1.0 + (word_count * 0.15), 6.0)  # Up to 6 seconds for long responses
-            
-            # Use the longer of the default or dynamic cooldown
-            effective_cooldown = max(self.speech_cooldown_period, dynamic_cooldown)
-            self.speech_end_time = time.time() + effective_cooldown
-            
-            logger.info(f"[{self.session_id}] Speaking ended, words: {word_count}, cooldown: {effective_cooldown:.1f}s, until {self.speech_end_time}")
+            logger.info(f"[{self.session_id}] Speech synthesis completed, returning to listening mode")
             
             if self.is_active:
                 await self.websocket.send_json({"status": "listening", "message": "Listening for voice input..."})
@@ -782,16 +726,22 @@ class STSSession:
                     audio = await asyncio.wait_for(self.output_audio_queue.get(), timeout=0.5)
                 except asyncio.TimeoutError:
                     continue
+                
+                # Check if session is still active before playing audio
+                if not self.is_active:
+                    break
                     
                 self.player.queue_audio(audio)
                 self.output_audio_queue.task_done()
         except asyncio.CancelledError:
             logger.info(f"Audio output processor task cancelled for session {self.session_id}")
-            if self.player:
-                self.player.stop()
         finally:
             if self.player:
-                self.player.stop()
+                try:
+                    logger.info(f"[{self.session_id}] Flushing audio player in output processor cleanup")
+                    self.player.flush()
+                except Exception as e:
+                    logger.error(f"[{self.session_id}] Error flushing audio player in cleanup: {e}")
 
 async def handle_sts_session(websocket: WebSocket, session_id: str = None, llm_model: str = None, voice: str = None):
     if not session_id:
@@ -832,11 +782,12 @@ async def handle_sts_session(websocket: WebSocket, session_id: str = None, llm_m
                         del active_sessions[session_id]
                         logger.info(f"[{session_id}] Session removed from active_sessions")
                     try:
-                        await websocket.send_json({"status": "stopped", "message": "STS session stopped"})
-                        await websocket.close(code=1000)
-                        logger.info(f"[{session_id}] WebSocket closed normally")
+                        if websocket.client_state.value == 1:  # WebSocket is still open
+                            await websocket.send_json({"status": "stopped", "message": "STS session stopped"})
+                            await websocket.close(code=1000)
+                            logger.info(f"[{session_id}] WebSocket closed normally")
                     except Exception as e:
-                        logger.error(f"[{session_id}] Error sending stop confirmation: {e}", exc_info=True)
+                        logger.debug(f"[{session_id}] WebSocket already closed: {e}")
                     break
                 elif data.startswith("config:"):
                     config_str = data[7:]
@@ -870,7 +821,8 @@ async def handle_sts_session(websocket: WebSocket, session_id: str = None, llm_m
             logger.info(f"[{session_id}] Session removed from active_sessions in finally block")
         
         try:
-            await websocket.close(code=1000)
-            logger.info(f"[{session_id}] WebSocket closed in finally block")
+            if websocket.client_state.value == 1:  # WebSocket is still open
+                await websocket.close(code=1000)
+                logger.info(f"[{session_id}] WebSocket closed in finally block")
         except Exception as e:
-            logger.error(f"[{session_id}] Error closing WebSocket in finally block: {e}", exc_info=True)
+            logger.debug(f"[{session_id}] WebSocket already closed in finally block: {e}")
